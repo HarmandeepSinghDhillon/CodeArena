@@ -13,6 +13,8 @@ from datetime import datetime
 import hashlib
 from collections import defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 app = Flask(__name__, static_folder='../public', static_url_path='')
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
 
