@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, session
+from flask import Flask, request, jsonify, send_from_directory, session, redirect
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -14,7 +14,8 @@ import hashlib
 from collections import defaultdict
 
 app = Flask(__name__, static_folder='../public', static_url_path='')
-app.secret_key = 'your-secret-key-here-change-in-production'
+# Use environment variable for production secret key, fallback to string for local dev
+app.secret_key = os.environ.get('SECRET_KEY', 'harisonputter9878')
 
 # Initialize extensions
 bcrypt = Bcrypt(app)
@@ -161,7 +162,7 @@ def load_problems():
                         "-10^9 <= nums[i] <= 10^9",
                         "-10^9 <= target <= 10^9"
                     ],
-                    "starterCode": "def two_sum(nums, target):\n    # Write your code here\n    for i in range(len(nums)):\n        for j in range(i+1, len(nums)):\n            if nums[i] + nums[j] == target:\n                return [i, j]\n    return []",
+                    "starterCode": "def two_sum(nums, target):\n    for i in range(len(nums)):\n        for j in range(i+1, len(nums)):\n            if nums[i] + nums[j] == target:\n                return [i, j]\n    return []",
                     "testCases": [
                         {"input": "[2,7,11,15]\n9", "expected": "[0, 1]"},
                         {"input": "[3,2,4]\n6", "expected": "[1, 2]"},
@@ -188,29 +189,33 @@ def save_problems(problems_data):
     with open(problems_path, 'w', encoding='utf-8') as f:
         json.dump(problems_data, f, indent=2)
 
-# Serve static files
-@app.route('/login')
-def serve_login_clean():
-    return send_from_directory('../public', 'login.html')
-
-@app.route('/signup')
-def serve_signup_clean():
-    return send_from_directory('../public', 'signup.html')
-
-@app.route('/dashboard')
-def serve_index_clean():
+# Serve static files with Route Protection and Clean URLs
+@app.route('/')
+def serve_index():
+    # Redirect unauthenticated users directly to login
+    if not current_user.is_authenticated:
+        return redirect('/login')
     return send_from_directory('../public', 'index.html')
 
 @app.route('/admin')
 def serve_admin():
+    # Protect admin dashboard
+    if not current_user.is_authenticated or current_user.role != 'admin':
+        return redirect('/login')
     return send_from_directory('../public', 'admin.html')
 
-@app.route('/login.html')
+@app.route('/login')
 def serve_login():
+    # If already logged in, skip login page and go straight to app
+    if current_user.is_authenticated:
+        return redirect('/')
     return send_from_directory('../public', 'login.html')
 
-@app.route('/signup.html')
+@app.route('/signup')
 def serve_signup():
+    # If already logged in, skip signup page
+    if current_user.is_authenticated:
+        return redirect('/')
     return send_from_directory('../public', 'signup.html')
 
 @app.route('/<path:path>')
@@ -902,4 +907,4 @@ def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=False, port=5000, host='0.0.0.0')
+    app.run(debug=True, port=5000, host='0.0.0.0')
