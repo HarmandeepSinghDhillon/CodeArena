@@ -12,7 +12,6 @@ import ast
 from datetime import datetime
 import hashlib
 from collections import defaultdict
-import uuid
 
 app = Flask(__name__, static_folder='../public', static_url_path='')
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
@@ -22,10 +21,10 @@ bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Enable CORS for production
+# Enable CORS
 CORS(app, resources={
     r"/api/*": {
-        "origins": os.environ.get('CORS_ORIGINS', '*').split(','),
+        "origins": "*",
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
@@ -37,17 +36,31 @@ EXECUTION_TIMEOUT = 10
 # Track active users (user_id -> last activity timestamp)
 active_users = {}
 
-# File paths for Vercel - use /tmp for writable storage
+# Get the correct data path for Render
 def get_data_path(filename):
     """Get writable path for data files"""
-    # In Vercel, use /tmp directory for writeable storage
-    if os.environ.get('VERCEL'):
-        return f'/tmp/{filename}'
+    # For Render.com - use persistent disk
+    if os.environ.get('RENDER'):
+        return f'/opt/render/project/src/data/{filename}'
     else:
         # Local development
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
-        return os.path.join(project_root, 'data', filename)
+        data_dir = os.path.join(project_root, 'data')
+        # Create data directory if it doesn't exist
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, filename)
+
+# Get public directory path
+def get_public_dir():
+    if os.environ.get('RENDER'):
+        return '/opt/render/project/src/public'
+    else:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        return os.path.join(project_root, 'public')
+
+PUBLIC_DIR = get_public_dir()
 
 # User class
 class User(UserMixin):
@@ -102,6 +115,7 @@ def load_users():
 
 def save_users(users_dict):
     users_path = get_data_path('users.json')
+    os.makedirs(os.path.dirname(users_path), exist_ok=True)
     with open(users_path, 'w', encoding='utf-8') as f:
         json.dump({"users": users_dict}, f, indent=2)
 
@@ -148,6 +162,7 @@ def load_problems():
 
 def save_problems(problems_data):
     problems_path = get_data_path('problems.json')
+    os.makedirs(os.path.dirname(problems_path), exist_ok=True)
     with open(problems_path, 'w', encoding='utf-8') as f:
         json.dump(problems_data, f, indent=2)
 
@@ -188,33 +203,34 @@ def update_user_activity(user_id):
         save_users(users_dict)
 
 # Serve static files
-@app.route('/login')
-def serve_login_clean():
-    return send_from_directory('../public', 'login.html')
-
-@app.route('/signup')
-def serve_signup_clean():
-    return send_from_directory('../public', 'signup.html')
-
-@app.route('/dashboard')
-def serve_dashboard():
-    return send_from_directory('../public', 'index.html')
+@app.route('/')
+def serve_index():
+    return send_from_directory(PUBLIC_DIR, 'index.html')
 
 @app.route('/admin')
 def serve_admin():
-    return send_from_directory('../public', 'admin.html')
+    return send_from_directory(PUBLIC_DIR, 'admin.html')
 
+@app.route('/login')
+def serve_login_clean():
+    return send_from_directory(PUBLIC_DIR, 'login.html')
+
+@app.route('/signup')
+def serve_signup_clean():
+    return send_from_directory(PUBLIC_DIR, 'signup.html')
+
+# Keep .html routes for backward compatibility
 @app.route('/login.html')
 def serve_login():
-    return send_from_directory('../public', 'login.html')
+    return send_from_directory(PUBLIC_DIR, 'login.html')
 
 @app.route('/signup.html')
 def serve_signup():
-    return send_from_directory('../public', 'signup.html')
+    return send_from_directory(PUBLIC_DIR, 'signup.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    return send_from_directory('../public', path)
+    return send_from_directory(PUBLIC_DIR, path)
 
 # Authentication routes
 @app.route('/api/signup', methods=['POST', 'OPTIONS'])
@@ -357,6 +373,13 @@ def admin_get_users():
                     last_active = active_users[u.id]
                     if (current_time - last_active).seconds <= 300:
                         is_active = True
+                elif u.last_active:
+                    try:
+                        last_active_time = datetime.fromisoformat(u.last_active)
+                        if (current_time - last_active_time).seconds <= 300:
+                            is_active = True
+                    except:
+                        pass
                 
                 solved_problems = []
                 for problem_id, progress in u.progress.items():
@@ -445,7 +468,7 @@ def admin_delete_problem(problem_id):
         problems_data = load_problems()
         problems_data['problems'] = [p for p in problems_data['problems'] if p['id'] != problem_id]
         save_problems(problems_data)
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'message': 'Problem deleted successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -820,9 +843,16 @@ def get_problems():
 def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
 
+@app.route('/api/user/heartbeat', methods=['POST'])
+@login_required
+def user_heartbeat():
+    """Update user's last active timestamp"""
+    update_user_activity(current_user.id)
+    return jsonify({'success': True})
+
 # For local development
 if __name__ == '__main__':
     app.run(debug=True, port=5000, host='0.0.0.0')
 
 # For Render - this is required
-application = app
+app = app
