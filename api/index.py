@@ -189,8 +189,16 @@ def save_problems(problems_data):
         json.dump(problems_data, f, indent=2)
 
 # Serve static files
-@app.route('/')
-def serve_index():
+@app.route('/login')
+def serve_login_clean():
+    return send_from_directory('../public', 'login.html')
+
+@app.route('/signup')
+def serve_signup_clean():
+    return send_from_directory('../public', 'signup.html')
+
+@app.route('/dashboard')
+def serve_index_clean():
     return send_from_directory('../public', 'index.html')
 
 @app.route('/admin')
@@ -894,18 +902,4 @@ def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
 
 if __name__ == '__main__':
-    print("🚀 Server starting...")
-    print("📍 Project Structure:")
-    print("   - API Server: api/index.py")
-    print("   - Public Files: public/")
-    print("   - Data Files: data/")
-    print("\n📍 Access URLs:")
-    print("   - Login Page: http://localhost:5000/login.html")
-    print("   - Signup Page: http://localhost:5000/signup.html")
-    print("   - User Interface: http://localhost:5000")
-    print("   - Admin Interface: http://localhost:5000/admin")
-    print("\n📝 Default Login Credentials:")
-    print("   👤 User:  username='user', password='user123'")
-    print("   👑 Admin: username='admin', password='admin123'")
-    print("\n✅ Server is ready!")
-    app.run(debug=True, port=5000, host='0.0.0.0')
+    app.run(debug=False, port=5000, host='0.0.0.0')
