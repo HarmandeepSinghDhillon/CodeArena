@@ -13,10 +13,8 @@ from datetime import datetime
 import hashlib
 from collections import defaultdict
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 app = Flask(__name__, static_folder='../public', static_url_path='')
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
+app.secret_key = 'your-secret-key-here-change-in-production'
 
 # Initialize extensions
 bcrypt = Bcrypt(app)
@@ -38,33 +36,7 @@ EXECUTION_TIMEOUT = 10
 # Track active users (user_id -> last activity timestamp)
 active_users = {}
 
-# Get the correct data path for Render
-def get_data_path(filename):
-    """Get writable path for data files"""
-    # For Render.com - use persistent disk
-    if os.environ.get('RENDER'):
-        return f'/opt/render/project/src/data/{filename}'
-    else:
-        # Local development
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        data_dir = os.path.join(project_root, 'data')
-        # Create data directory if it doesn't exist
-        os.makedirs(data_dir, exist_ok=True)
-        return os.path.join(data_dir, filename)
-
-# Get public directory path
-def get_public_dir():
-    if os.environ.get('RENDER'):
-        return '/opt/render/project/src/public'
-    else:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        return os.path.join(project_root, 'public')
-
-PUBLIC_DIR = get_public_dir()
-
-# User class
+# User database with progress tracking
 class User(UserMixin):
     def __init__(self, id, username, email, password_hash, role, created_at, progress=None, last_active=None):
         self.id = id
@@ -76,9 +48,11 @@ class User(UserMixin):
         self.progress = progress or {}
         self.last_active = last_active
 
-# Load users from JSON
+# File-based user database
 def load_users():
-    users_path = get_data_path('users.json')
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    users_path = os.path.join(project_root, 'data', 'users.json')
     
     if not os.path.exists(users_path):
         # Create default users
@@ -116,14 +90,56 @@ def load_users():
         return data["users"]
 
 def save_users(users_dict):
-    users_path = get_data_path('users.json')
-    os.makedirs(os.path.dirname(users_path), exist_ok=True)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    users_path = os.path.join(project_root, 'data', 'users.json')
+    
     with open(users_path, 'w', encoding='utf-8') as f:
         json.dump({"users": users_dict}, f, indent=2)
 
-# Load problems from JSON
+# Load users into memory
+users = {}
+for user_id, user_data in load_users().items():
+    users[user_id] = User(
+        user_data["id"],
+        user_data["username"],
+        user_data["email"],
+        user_data["password_hash"],
+        user_data["role"],
+        user_data["created_at"],
+        user_data.get("progress", {}),
+        user_data.get("last_active")
+    )
+
+@login_manager.user_loader
+def load_user(user_id):
+    return users.get(user_id)
+
+# Update user last active timestamp
+def update_user_activity(user_id):
+    if user_id in users:
+        users[user_id].last_active = datetime.now().isoformat()
+        active_users[user_id] = datetime.now()
+        # Save to file
+        users_dict = {}
+        for uid, u in users.items():
+            users_dict[uid] = {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "password_hash": u.password_hash,
+                "role": u.role,
+                "created_at": u.created_at,
+                "progress": u.progress,
+                "last_active": u.last_active
+            }
+        save_users(users_dict)
+
+# Helper functions for problems
 def load_problems():
-    problems_path = get_data_path('problems.json')
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    problems_path = os.path.join(project_root, 'data', 'problems.json')
     
     if not os.path.exists(problems_path):
         default_problems = {
@@ -163,76 +179,35 @@ def load_problems():
         return json.load(f)
 
 def save_problems(problems_data):
-    problems_path = get_data_path('problems.json')
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    problems_path = os.path.join(project_root, 'data', 'problems.json')
+    
     os.makedirs(os.path.dirname(problems_path), exist_ok=True)
+    
     with open(problems_path, 'w', encoding='utf-8') as f:
         json.dump(problems_data, f, indent=2)
-
-# Load users into memory
-users = {}
-for user_id, user_data in load_users().items():
-    users[user_id] = User(
-        user_data["id"],
-        user_data["username"],
-        user_data["email"],
-        user_data["password_hash"],
-        user_data["role"],
-        user_data["created_at"],
-        user_data.get("progress", {}),
-        user_data.get("last_active")
-    )
-
-@login_manager.user_loader
-def load_user(user_id):
-    return users.get(user_id)
-
-def update_user_activity(user_id):
-    if user_id in users:
-        users[user_id].last_active = datetime.now().isoformat()
-        active_users[user_id] = datetime.now()
-        users_dict = {}
-        for uid, u in users.items():
-            users_dict[uid] = {
-                "id": u.id,
-                "username": u.username,
-                "email": u.email,
-                "password_hash": u.password_hash,
-                "role": u.role,
-                "created_at": u.created_at,
-                "progress": u.progress,
-                "last_active": u.last_active
-            }
-        save_users(users_dict)
 
 # Serve static files
 @app.route('/')
 def serve_index():
-    return send_from_directory(PUBLIC_DIR, 'index.html')
+    return send_from_directory('../public', 'index.html')
 
 @app.route('/admin')
 def serve_admin():
-    return send_from_directory(PUBLIC_DIR, 'admin.html')
+    return send_from_directory('../public', 'admin.html')
 
-@app.route('/login')
-def serve_login_clean():
-    return send_from_directory(PUBLIC_DIR, 'login.html')
-
-@app.route('/signup')
-def serve_signup_clean():
-    return send_from_directory(PUBLIC_DIR, 'signup.html')
-
-# Keep .html routes for backward compatibility
 @app.route('/login.html')
 def serve_login():
-    return send_from_directory(PUBLIC_DIR, 'login.html')
+    return send_from_directory('../public', 'login.html')
 
 @app.route('/signup.html')
 def serve_signup():
-    return send_from_directory(PUBLIC_DIR, 'signup.html')
+    return send_from_directory('../public', 'signup.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    return send_from_directory(PUBLIC_DIR, path)
+    return send_from_directory('../public', path)
 
 # Authentication routes
 @app.route('/api/signup', methods=['POST', 'OPTIONS'])
@@ -246,35 +221,58 @@ def signup():
         email = data.get('email')
         password = data.get('password')
         
+        # Check if username exists
         for user in users.values():
             if user.username == username:
                 return jsonify({'success': False, 'message': 'Username already exists'}), 400
+        
+        # Check if email exists
+        for user in users.values():
             if user.email == email:
                 return jsonify({'success': False, 'message': 'Email already exists'}), 400
         
+        # Create new user
         new_id = str(max(int(id) for id in users.keys()) + 1)
         password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
         
         new_user = User(
-            new_id, username, email, password_hash, 'user',
-            datetime.now().isoformat(), {}, None
+            new_id,
+            username,
+            email,
+            password_hash,
+            'user',
+            datetime.now().isoformat(),
+            {},
+            None
         )
         
         users[new_id] = new_user
+        
+        # Save to file
         users_dict = {}
         for uid, u in users.items():
             users_dict[uid] = {
-                "id": u.id, "username": u.username, "email": u.email,
-                "password_hash": u.password_hash, "role": u.role,
-                "created_at": u.created_at, "progress": u.progress,
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "password_hash": u.password_hash,
+                "role": u.role,
+                "created_at": u.created_at,
+                "progress": u.progress,
                 "last_active": u.last_active
             }
         save_users(users_dict)
         
+        # Auto login after signup
         login_user(new_user)
         update_user_activity(new_id)
         
-        return jsonify({'success': True, 'role': 'user', 'username': username})
+        return jsonify({
+            'success': True,
+            'role': 'user',
+            'username': username,
+            'message': 'Account created successfully!'
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -289,6 +287,7 @@ def login():
         password = data.get('password')
         role = data.get('role', 'user')
         
+        # Find user
         user = None
         for u in users.values():
             if u.username == username and u.role == role:
@@ -298,23 +297,33 @@ def login():
         if user and bcrypt.check_password_hash(user.password_hash, password):
             login_user(user)
             update_user_activity(user.id)
-            return jsonify({'success': True, 'role': user.role, 'username': user.username})
+            return jsonify({
+                'success': True,
+                'role': user.role,
+                'username': user.username,
+                'message': f'Welcome back {username}!'
+            })
         else:
-            return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+            return jsonify({
+                'success': False,
+                'message': 'Invalid credentials'
+            }), 401
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/logout', methods=['POST'])
 @login_required
 def logout():
+    # Remove from active users
     if current_user.id in active_users:
         del active_users[current_user.id]
     logout_user()
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'message': 'Logged out successfully'})
 
 @app.route('/api/check-auth', methods=['GET'])
 def check_auth():
     if current_user.is_authenticated:
+        # Update activity on each check
         update_user_activity(current_user.id)
         return jsonify({
             'authenticated': True,
@@ -322,6 +331,69 @@ def check_auth():
             'username': current_user.username
         })
     return jsonify({'authenticated': False})
+
+# User progress routes
+@app.route('/api/user/progress', methods=['GET'])
+@login_required
+def get_user_progress():
+    try:
+        progress = current_user.progress
+        problems_data = load_problems()
+        
+        # Calculate statistics
+        total_problems = len(problems_data['problems'])
+        solved_problems = len([p for p in progress.values() if p.get('solved', False)])
+        
+        # Get solved problem IDs
+        solved_ids = [int(pid) for pid, p in progress.items() if p.get('solved', False)]
+        
+        return jsonify({
+            'progress': progress,
+            'stats': {
+                'total': total_problems,
+                'solved': solved_problems,
+                'percentage': (solved_problems / total_problems * 100) if total_problems > 0 else 0
+            },
+            'solvedIds': solved_ids
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/progress', methods=['POST'])
+@login_required
+def update_user_progress():
+    try:
+        data = request.json
+        problem_id = str(data.get('problemId'))
+        solved = data.get('solved', False)
+        
+        if problem_id not in current_user.progress:
+            current_user.progress[problem_id] = {}
+        
+        current_user.progress[problem_id]['solved'] = solved
+        current_user.progress[problem_id]['last_attempt'] = datetime.now().isoformat()
+        
+        if solved and 'solved_at' not in current_user.progress[problem_id]:
+            current_user.progress[problem_id]['solved_at'] = datetime.now().isoformat()
+        
+        # Save to file
+        users_dict = {}
+        for uid, u in users.items():
+            users_dict[uid] = {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "password_hash": u.password_hash,
+                "role": u.role,
+                "created_at": u.created_at,
+                "progress": u.progress,
+                "last_active": u.last_active
+            }
+        save_users(users_dict)
+        
+        return jsonify({'success': True, 'progress': current_user.progress[problem_id]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Admin routes
 @app.route('/api/admin/stats', methods=['GET'])
@@ -334,17 +406,20 @@ def admin_get_stats():
         total_users = len([u for u in users.values() if u.role == 'user'])
         total_problems = len(load_problems()['problems'])
         
+        # Calculate total submissions (unique solved problems)
         total_solved = 0
         for u in users.values():
             if u.role == 'user':
                 total_solved += len([p for p in u.progress.values() if p.get('solved', False)])
         
+        # Clean up inactive users (older than 5 minutes)
         current_time = datetime.now()
         active_count = 0
         for user_id, last_active in list(active_users.items()):
-            if (current_time - last_active).seconds > 300:
+            if (current_time - last_active).seconds > 300:  # 5 minutes timeout
                 del active_users[user_id]
             else:
+                # Check if user is a regular user (not admin)
                 if user_id in users and users[user_id].role == 'user':
                     active_count += 1
         
@@ -370,6 +445,7 @@ def admin_get_users():
         
         for u in users.values():
             if u.role == 'user':
+                # Check if user is active (last activity within 5 minutes)
                 is_active = False
                 if u.id in active_users:
                     last_active = active_users[u.id]
@@ -383,12 +459,14 @@ def admin_get_users():
                     except:
                         pass
                 
+                # Get solved problems with details
                 solved_problems = []
                 for problem_id, progress in u.progress.items():
                     if progress.get('solved', False):
                         solved_problems.append({
                             'problem_id': int(problem_id),
-                            'solved_at': progress.get('solved_at')
+                            'solved_at': progress.get('solved_at'),
+                            'last_attempt': progress.get('last_attempt')
                         })
                 
                 users_list.append({
@@ -400,6 +478,7 @@ def admin_get_users():
                     'solved_problems': solved_problems,
                     'is_active': is_active,
                     'last_active': u.last_active,
+                    'progress': u.progress,
                     'total_problems': total_problems
                 })
         return jsonify({'users': users_list})
@@ -414,12 +493,15 @@ def admin_get_problems():
     
     try:
         problems_data = load_problems()
+        
+        # Add solved counts for each problem
         for problem in problems_data['problems']:
             solved_count = 0
             for u in users.values():
                 if u.role == 'user' and u.progress.get(str(problem['id']), {}).get('solved', False):
                     solved_count += 1
             problem['solved_by_count'] = solved_count
+        
         return jsonify(problems_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -433,10 +515,14 @@ def admin_add_problem():
     try:
         problems_data = load_problems()
         new_problem = request.json
+        
+        # Generate new ID
         max_id = max([p.get('id', 0) for p in problems_data.get('problems', [])], default=0)
         new_problem['id'] = max_id + 1
+        
         problems_data['problems'].append(new_problem)
         save_problems(problems_data)
+        
         return jsonify({'success': True, 'problem': new_problem})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -450,12 +536,14 @@ def admin_update_problem(problem_id):
     try:
         problems_data = load_problems()
         updated_problem = request.json
+        
         for i, problem in enumerate(problems_data['problems']):
             if problem['id'] == problem_id:
                 updated_problem['id'] = problem_id
                 problems_data['problems'][i] = updated_problem
                 save_problems(problems_data)
                 return jsonify({'success': True, 'problem': updated_problem})
+        
         return jsonify({'error': 'Problem not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -474,60 +562,14 @@ def admin_delete_problem(problem_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# User progress routes
-@app.route('/api/user/progress', methods=['GET'])
+@app.route('/api/user/heartbeat', methods=['POST'])
 @login_required
-def get_user_progress():
-    try:
-        progress = current_user.progress
-        problems_data = load_problems()
-        total_problems = len(problems_data['problems'])
-        solved_problems = len([p for p in progress.values() if p.get('solved', False)])
-        
-        return jsonify({
-            'progress': progress,
-            'stats': {
-                'total': total_problems,
-                'solved': solved_problems,
-                'percentage': (solved_problems / total_problems * 100) if total_problems > 0 else 0
-            },
-            'solvedIds': [int(pid) for pid, p in progress.items() if p.get('solved', False)]
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def user_heartbeat():
+    """Update user's last active timestamp"""
+    update_user_activity(current_user.id)
+    return jsonify({'success': True})
 
-@app.route('/api/user/progress', methods=['POST'])
-@login_required
-def update_user_progress():
-    try:
-        data = request.json
-        problem_id = str(data.get('problemId'))
-        solved = data.get('solved', False)
-        
-        if problem_id not in current_user.progress:
-            current_user.progress[problem_id] = {}
-        
-        current_user.progress[problem_id]['solved'] = solved
-        current_user.progress[problem_id]['last_attempt'] = datetime.now().isoformat()
-        
-        if solved and 'solved_at' not in current_user.progress[problem_id]:
-            current_user.progress[problem_id]['solved_at'] = datetime.now().isoformat()
-        
-        users_dict = {}
-        for uid, u in users.items():
-            users_dict[uid] = {
-                "id": u.id, "username": u.username, "email": u.email,
-                "password_hash": u.password_hash, "role": u.role,
-                "created_at": u.created_at, "progress": u.progress,
-                "last_active": u.last_active
-            }
-        save_users(users_dict)
-        
-        return jsonify({'success': True, 'progress': current_user.progress[problem_id]})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Code execution routes
+# User code execution routes
 @app.route('/api/run', methods=['POST', 'OPTIONS'])
 def run_code():
     if request.method == 'OPTIONS':
@@ -796,6 +838,7 @@ print(actual_output)
                 except:
                     pass
         
+        # Update user progress if all tests passed and user is logged in
         if all_passed and current_user.is_authenticated and current_user.role == 'user':
             try:
                 problem_id_str = str(problem_id)
@@ -808,12 +851,17 @@ print(actual_output)
                 if 'solved_at' not in current_user.progress[problem_id_str]:
                     current_user.progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
                 
+                # Save to file
                 users_dict = {}
                 for uid, u in users.items():
                     users_dict[uid] = {
-                        "id": u.id, "username": u.username, "email": u.email,
-                        "password_hash": u.password_hash, "role": u.role,
-                        "created_at": u.created_at, "progress": u.progress,
+                        "id": u.id,
+                        "username": u.username,
+                        "email": u.email,
+                        "password_hash": u.password_hash,
+                        "role": u.role,
+                        "created_at": u.created_at,
+                        "progress": u.progress,
                         "last_active": u.last_active
                     }
                 save_users(users_dict)
@@ -845,16 +893,19 @@ def get_problems():
 def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
 
-@app.route('/api/user/heartbeat', methods=['POST'])
-@login_required
-def user_heartbeat():
-    """Update user's last active timestamp"""
-    update_user_activity(current_user.id)
-    return jsonify({'success': True})
-
-# For local development
 if __name__ == '__main__':
+    print("🚀 Server starting...")
+    print("📍 Project Structure:")
+    print("   - API Server: api/index.py")
+    print("   - Public Files: public/")
+    print("   - Data Files: data/")
+    print("\n📍 Access URLs:")
+    print("   - Login Page: http://localhost:5000/login.html")
+    print("   - Signup Page: http://localhost:5000/signup.html")
+    print("   - User Interface: http://localhost:5000")
+    print("   - Admin Interface: http://localhost:5000/admin")
+    print("\n📝 Default Login Credentials:")
+    print("   👤 User:  username='user', password='user123'")
+    print("   👑 Admin: username='admin', password='admin123'")
+    print("\n✅ Server is ready!")
     app.run(debug=True, port=5000, host='0.0.0.0')
-
-# For Render - this is required
-app = app
