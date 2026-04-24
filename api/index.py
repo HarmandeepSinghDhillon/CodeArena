@@ -63,22 +63,12 @@ def load_users():
                     "id": "1",
                     "username": "admin",
                     "email": "admin@codearena.com",
-                    "password_hash": bcrypt.generate_password_hash('admin123').decode('utf-8'),
+                    "password_hash": bcrypt.generate_password_hash('admin9878').decode('utf-8'),
                     "role": "admin",
                     "created_at": datetime.now().isoformat(),
                     "progress": {},
                     "last_active": None
                 },
-                "2": {
-                    "id": "2",
-                    "username": "user",
-                    "email": "user@example.com",
-                    "password_hash": bcrypt.generate_password_hash('user123').decode('utf-8'),
-                    "role": "user",
-                    "created_at": datetime.now().isoformat(),
-                    "progress": {},
-                    "last_active": None
-                }
             }
         }
         os.makedirs(os.path.dirname(users_path), exist_ok=True)
@@ -907,4 +897,4 @@ def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000, host='0.0.0.0')
+    app.run(debug=False, port=5000, host='0.0.0.0')
