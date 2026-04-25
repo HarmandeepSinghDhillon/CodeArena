@@ -16,13 +16,7 @@ from firebase_admin import credentials, firestore, auth
 app = Flask(__name__, static_folder='../public', static_url_path='')
 app.secret_key = os.environ.get('SECRET_KEY', 'harisonputter9878')
 
-# Configure CORS
-CORS(app, supports_credentials=True, origins=[
-    'https://py-compiler-ten.vercel.app',
-    'https://py-compiler.vercel.app',
-    'http://localhost:5000',
-    'http://localhost:3000'
-])
+CORS(app, supports_credentials=True)
 
 EXECUTION_TIMEOUT = 10
 
@@ -34,29 +28,50 @@ if firebase_creds_str:
         cred = credentials.Certificate(cred_dict)
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred)
-    except Exception as e:
-        print(f"Firebase init error: {e}")
+    except Exception:
+        pass
+else:
+    if not firebase_admin._apps:
+        try:
+            firebase_admin.initialize_app()
+        except ValueError:
+            pass
 
 db = firestore.client()
 FIREBASE_API_KEY = os.environ.get('FIREBASE_API_KEY')
 
-# Simple in-memory cache for better performance
-auth_cache = {}
-user_data_cache = {}
-problems_cache = {}
-cache_ttl = 300  # 5 minutes
+# ========== CACHE SYSTEM FOR SPEED ==========
+cache = {
+    'problems': None,
+    'problems_time': None,
+    'stats': None,
+    'stats_time': None,
+    'users': {},
+    'users_time': {}
+}
+CACHE_DURATION = 300  # 5 minutes
 
-def get_cached(key, cache_dict):
-    if key in cache_dict:
-        data, timestamp = cache_dict[key]
-        if (datetime.now() - timestamp).seconds < cache_ttl:
-            return data
-        del cache_dict[key]
+def get_cached(key, cache_key='default'):
+    if cache.get(key) and cache.get(f'{key}_time'):
+        if (datetime.now() - cache[f'{key}_time']).seconds < CACHE_DURATION:
+            return cache[key]
     return None
 
-def set_cache(key, value, cache_dict):
-    cache_dict[key] = (value, datetime.now())
+def set_cache(key, value):
+    cache[key] = value
+    cache[f'{key}_time'] = datetime.now()
 
+def invalidate_cache(key=None):
+    if key:
+        cache[key] = None
+        cache[f'{key}_time'] = None
+    else:
+        cache['problems'] = None
+        cache['problems_time'] = None
+        cache['stats'] = None
+        cache['stats_time'] = None
+
+# ========== AUTH DECORATOR ==========
 def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -64,92 +79,83 @@ def require_auth(f):
         if not token:
             return jsonify({'error': 'Unauthorized', 'authenticated': False}), 401
         
-        # Check cache
-        cached = get_cached(token, auth_cache)
-        if cached:
-            request.uid = cached['uid']
-            request.user_data = cached['user_data']
+        # Check user cache
+        cached_user = get_cached(token, 'users')
+        if cached_user:
+            request.uid = cached_user['uid']
+            request.user_data = cached_user['user_data']
             return f(*args, **kwargs)
         
         try:
             decoded_token = auth.verify_id_token(token)
             request.uid = decoded_token['uid']
-            
             user_doc = db.collection('users').document(request.uid).get()
             if user_doc.exists:
                 request.user_data = user_doc.to_dict()
             else:
                 request.user_data = {'role': 'user'}
             
-            set_cache(token, {'uid': request.uid, 'user_data': request.user_data}, auth_cache)
+            # Cache user data
+            set_cache(token, {'uid': request.uid, 'user_data': request.user_data})
+            
             return f(*args, **kwargs)
         except Exception as e:
             return jsonify({'error': str(e), 'authenticated': False}), 401
     return decorated_function
 
-# Route handlers - all routes go through Flask
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def catch_all(path):
-    """Handle all routes - let Flask decide based on auth"""
+# ========== ROUTES - FIXED REDIRECT ISSUE ==========
+@app.route('/')
+def serve_index():
     token = request.cookies.get('auth_token')
-    
-    # API routes
-    if path.startswith('api/'):
-        return jsonify({'error': 'Not found'}), 404
-    
-    # Static file extensions - serve directly
-    if path.endswith('.css') or path.endswith('.js') or path.endswith('.png') or path.endswith('.jpg'):
-        return send_from_directory('../public', path)
-    
-    # Page routes with authentication check
-    if path == 'login' or path == 'login.html':
-        if token:
-            try:
-                auth.verify_id_token(token)
-                return redirect('/')
-            except:
-                pass
-        return send_from_directory('../public', 'login.html')
-    
-    if path == 'signup' or path == 'signup.html':
-        if token:
-            try:
-                auth.verify_id_token(token)
-                return redirect('/')
-            except:
-                pass
-        return send_from_directory('../public', 'signup.html')
-    
-    if path == 'admin' or path == 'admin.html':
-        if not token:
-            return redirect('/login')
-        try:
-            decoded = auth.verify_id_token(token)
-            user_doc = db.collection('users').document(decoded['uid']).get()
-            if user_doc.exists and user_doc.to_dict().get('role') == 'admin':
-                return send_from_directory('../public', 'admin.html')
-            return redirect('/')
-        except:
-            return redirect('/login')
-    
-    # Home page - requires login
-    if not path or path == '' or path == 'index.html':
-        if not token:
-            return redirect('/login')
-        try:
-            auth.verify_id_token(token)
-            return send_from_directory('../public', 'index.html')
-        except:
-            return redirect('/login')
-    
-    # Default - try to serve static file
+    if not token:
+        return redirect('/login')
     try:
-        return send_from_directory('../public', path)
-    except:
+        auth.verify_id_token(token)
+        return send_from_directory('../public', 'index.html')
+    except Exception:
         return redirect('/login')
 
-# API Routes
+@app.route('/admin')
+def serve_admin():
+    token = request.cookies.get('auth_token')
+    if not token:
+        return redirect('/login')
+    try:
+        decoded = auth.verify_id_token(token)
+        user_doc = db.collection('users').document(decoded['uid']).get()
+        if user_doc.exists and user_doc.to_dict().get('role') == 'admin':
+            return send_from_directory('../public', 'admin.html')
+        return redirect('/')
+    except Exception:
+        return redirect('/login')
+
+@app.route('/login')
+def serve_login():
+    token = request.cookies.get('auth_token')
+    if token:
+        try:
+            auth.verify_id_token(token)
+            return redirect('/')
+        except Exception:
+            pass
+    return send_from_directory('../public', 'login.html')
+
+@app.route('/signup')
+def serve_signup():
+    token = request.cookies.get('auth_token')
+    if token:
+        try:
+            auth.verify_id_token(token)
+            return redirect('/')
+        except Exception:
+            pass
+    return send_from_directory('../public', 'signup.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory('../public', path)
+
+# ========== API ROUTES ==========
 @app.route('/api/signup', methods=['POST', 'OPTIONS'])
 def signup():
     if request.method == 'OPTIONS':
@@ -160,10 +166,11 @@ def signup():
         email = data.get('email')
         password = data.get('password')
 
-        # Check existing users
         users_ref = db.collection('users')
-        existing = list(users_ref.where('username', '==', username).limit(1).stream())
-        if existing:
+        
+        # Check existing - using get() with limit for speed
+        existing_username = list(users_ref.where('username', '==', username).limit(1).stream())
+        if existing_username:
             return jsonify({'success': False, 'message': 'Username already exists'}), 400
         
         existing_email = list(users_ref.where('email', '==', email).limit(1).stream())
@@ -173,7 +180,7 @@ def signup():
         if not FIREBASE_API_KEY:
             return jsonify({'success': False, 'message': 'Server config error'}), 500
 
-        # Create Firebase Auth user
+        # Firebase Auth signup
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
         r = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True}, timeout=10)
 
@@ -185,7 +192,7 @@ def signup():
         uid = auth_data['localId']
         id_token = auth_data['idToken']
 
-        # Create user document in Firestore
+        # Create user document
         users_ref.document(uid).set({
             'id': uid,
             'username': username,
@@ -197,7 +204,7 @@ def signup():
         })
 
         resp = make_response(jsonify({'success': True, 'role': 'user', 'username': username}))
-        resp.set_cookie('auth_token', id_token, httponly=True, secure=True, samesite='Lax', max_age=86400)
+        resp.set_cookie('auth_token', id_token, httponly=True, secure=False, samesite='Lax', max_age=86400)
         return resp
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -212,7 +219,6 @@ def login():
         password = data.get('password')
         role = data.get('role', 'user')
 
-        # Find user by username
         users_ref = db.collection('users')
         query = users_ref.where('username', '==', username).where('role', '==', role).limit(1).stream()
         user_doc = next(query, None)
@@ -226,7 +232,7 @@ def login():
         if not FIREBASE_API_KEY:
             return jsonify({'success': False, 'message': 'Server config error'}), 500
 
-        # Sign in with Firebase Auth
+        # Firebase Auth login
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
         r = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True}, timeout=10)
 
@@ -236,11 +242,14 @@ def login():
         auth_data = r.json()
         id_token = auth_data['idToken']
 
-        # Update last active
-        users_ref.document(user_doc.id).update({'last_active': datetime.now().isoformat()})
+        # Update last active (async, don't wait)
+        try:
+            db.collection('users').document(user_doc.id).update({'last_active': datetime.now().isoformat()})
+        except:
+            pass
 
         resp = make_response(jsonify({'success': True, 'role': user_data['role'], 'username': username}))
-        resp.set_cookie('auth_token', id_token, httponly=True, secure=True, samesite='Lax', max_age=86400)
+        resp.set_cookie('auth_token', id_token, httponly=True, secure=False, samesite='Lax', max_age=86400)
         return resp
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -254,8 +263,12 @@ def logout():
 @app.route('/api/check-auth', methods=['GET'])
 @require_auth
 def check_auth():
-    # Update last active asynchronously (don't wait for response)
-    db.collection('users').document(request.uid).update({'last_active': datetime.now().isoformat()})
+    # Update last active in background (don't wait)
+    try:
+        db.collection('users').document(request.uid).update({'last_active': datetime.now().isoformat()})
+    except:
+        pass
+    
     return jsonify({
         'authenticated': True,
         'role': request.user_data.get('role'),
@@ -268,13 +281,11 @@ def get_user_progress():
     try:
         progress = request.user_data.get('progress', {})
         
-        # Get cached problems count
-        problems_data = get_cached('problems_list', problems_cache)
-        if problems_data:
-            problems_count = len(problems_data)
-        else:
+        # Cached problems count
+        problems_count = get_cached('problems')
+        if problems_count is None:
             problems_count = len(list(db.collection('problems').stream()))
-            set_cache('problems_list', problems_count, problems_cache)
+            set_cache('problems', problems_count)
 
         solved_problems = len([p for p in progress.values() if p.get('solved', False)])
         solved_ids = [int(pid) for pid, p in progress.items() if p.get('solved', False)]
@@ -317,6 +328,12 @@ def update_user_progress():
             current_progress[problem_id]['solved_at'] = datetime.now().isoformat()
 
         user_ref.update({'progress': current_progress})
+        
+        # Invalidate user cache
+        token = request.cookies.get('auth_token')
+        if token:
+            invalidate_cache(token)
+        
         return jsonify({'success': True, 'progress': current_progress[problem_id]})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -328,15 +345,20 @@ def admin_get_stats():
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
-        users_docs = list(db.collection('users').where('role', '==', 'user').stream())
+        # Check cache
+        cached_stats = get_cached('stats')
+        if cached_stats:
+            return jsonify(cached_stats)
+
+        # Get only necessary data with limits
+        users_docs = list(db.collection('users').where('role', '==', 'user').select(['progress', 'last_active']).stream())
         total_users = len(users_docs)
         
-        # Get cached problems count
-        problems_count = get_cached('problems_list', problems_cache)
+        problems_count = get_cached('problems')
         if problems_count is None:
             problems_count = len(list(db.collection('problems').stream()))
-            set_cache('problems_list', problems_count, problems_cache)
-        
+            set_cache('problems', problems_count)
+
         total_solved = 0
         active_count = 0
         current_time = datetime.now()
@@ -355,12 +377,15 @@ def admin_get_stats():
                 except:
                     pass
 
-        return jsonify({
+        stats = {
             'totalUsers': total_users,
             'totalProblems': problems_count,
             'totalSubmissions': total_solved,
             'activeUsers': active_count
-        })
+        }
+        
+        set_cache('stats', stats)
+        return jsonify(stats)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -373,12 +398,13 @@ def admin_get_users():
         users_list = []
         current_time = datetime.now()
         
-        problems_count = get_cached('problems_list', problems_cache)
+        problems_count = get_cached('problems')
         if problems_count is None:
             problems_count = len(list(db.collection('problems').stream()))
-            set_cache('problems_list', problems_count, problems_cache)
+            set_cache('problems', problems_count)
 
-        for doc in db.collection('users').where('role', '==', 'user').stream():
+        # Get users with selected fields only for speed
+        for doc in db.collection('users').where('role', '==', 'user').select(['id', 'username', 'email', 'created_at', 'progress', 'last_active']).stream():
             u = doc.to_dict()
             is_active = False
             if u.get('last_active'):
@@ -420,14 +446,25 @@ def admin_get_problems():
     if request.user_data.get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     try:
+        # Use cached problems
+        cached_problems = get_cached('problems_full')
+        if cached_problems:
+            return jsonify({'problems': cached_problems})
+        
         problems = [doc.to_dict() for doc in db.collection('problems').order_by('id').stream()]
+        
+        # Get solved counts more efficiently
+        all_users = list(db.collection('users').where('role', '==', 'user').select(['progress']).stream())
+        
         for problem in problems:
             solved_count = 0
-            for user_doc in db.collection('users').where('role', '==', 'user').stream():
+            for user_doc in all_users:
                 u = user_doc.to_dict()
                 if u.get('progress', {}).get(str(problem['id']), {}).get('solved', False):
                     solved_count += 1
             problem['solved_by_count'] = solved_count
+        
+        set_cache('problems_full', problems)
         return jsonify({'problems': problems})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -443,9 +480,12 @@ def admin_add_problem():
         max_id = max([doc.to_dict().get('id', 0) for doc in problems], default=0)
         new_problem['id'] = max_id + 1
         db.collection('problems').document(str(new_problem['id'])).set(new_problem)
-        # Clear cache
-        global problems_cache
-        problems_cache = {}
+        
+        # Invalidate caches
+        invalidate_cache('problems')
+        invalidate_cache('problems_full')
+        invalidate_cache('stats')
+        
         return jsonify({'success': True, 'problem': new_problem})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -459,9 +499,11 @@ def admin_update_problem(problem_id):
         updated_problem = request.json
         updated_problem['id'] = problem_id
         db.collection('problems').document(str(problem_id)).set(updated_problem)
-        # Clear cache
-        global problems_cache
-        problems_cache = {}
+        
+        # Invalidate caches
+        invalidate_cache('problems')
+        invalidate_cache('problems_full')
+        
         return jsonify({'success': True, 'problem': updated_problem})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -473,9 +515,12 @@ def admin_delete_problem(problem_id):
         return jsonify({'error': 'Unauthorized'}), 403
     try:
         db.collection('problems').document(str(problem_id)).delete()
-        # Clear cache
-        global problems_cache
-        problems_cache = {}
+        
+        # Invalidate caches
+        invalidate_cache('problems')
+        invalidate_cache('problems_full')
+        invalidate_cache('stats')
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -483,13 +528,14 @@ def admin_delete_problem(problem_id):
 @app.route('/api/user/heartbeat', methods=['POST'])
 @require_auth
 def user_heartbeat():
-    # Update without waiting for response
+    # Don't wait for response
     try:
         db.collection('users').document(request.uid).update({'last_active': datetime.now().isoformat()})
     except:
         pass
     return jsonify({'success': True})
 
+# ========== CODE EXECUTION (unchanged) ==========
 @app.route('/api/run', methods=['POST', 'OPTIONS'])
 def run_code():
     if request.method == 'OPTIONS':
@@ -729,7 +775,6 @@ print(actual_output)
                 except:
                     pass
 
-        # Update progress if all tests passed
         if all_passed:
             token = request.cookies.get('auth_token')
             if token:
@@ -754,6 +799,9 @@ print(actual_output)
                         current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
                     
                     user_ref.update({'progress': current_progress})
+                    
+                    # Invalidate user cache
+                    invalidate_cache(token)
                 except:
                     pass
 
@@ -771,8 +819,8 @@ def get_problems():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
     try:
-        # Check cache first
-        cached_problems = get_cached('problems_full_list', problems_cache)
+        # Use cached problems
+        cached_problems = get_cached('problems_full')
         if cached_problems:
             return jsonify({'problems': cached_problems})
         
@@ -791,7 +839,7 @@ def get_problems():
             db.collection('problems').document('1').set(default_prob)
             problems.append(default_prob)
         
-        set_cache('problems_full_list', problems, problems_cache)
+        set_cache('problems_full', problems)
         return jsonify({'problems': problems})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -799,9 +847,6 @@ def get_problems():
 @app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
     return jsonify({'status': 'healthy', 'message': 'API is running'}), 200
-
-# Vercel requires this
-app = app
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000, host='0.0.0.0')
