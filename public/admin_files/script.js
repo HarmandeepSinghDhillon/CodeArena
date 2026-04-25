@@ -13,7 +13,7 @@ async function checkAuth() {
         const data = await response.json();
         
         if (!data.authenticated || data.role !== 'admin') {
-            window.location.href = '/index.html';
+            window.location.href = '/';
             return false;
         }
         
@@ -22,7 +22,7 @@ async function checkAuth() {
         return true;
     } catch (error) {
         console.error('Auth check error:', error);
-        window.location.href = '/index.html';
+        window.location.href = '/';
         return false;
     }
 }
