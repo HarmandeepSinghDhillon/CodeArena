@@ -48,11 +48,6 @@ def require_auth(f):
         try:
             decoded_token = auth.verify_id_token(token)
             request.uid = decoded_token['uid']
-            user_doc = db.collection('users').document(request.uid).get()
-            if user_doc.exists:
-                request.user_data = user_doc.to_dict()
-            else:
-                request.user_data = {'role': 'user'}
         except Exception as e:
             return jsonify({'error': str(e), 'authenticated': False}), 401
         return f(*args, **kwargs)
@@ -203,18 +198,25 @@ def logout():
 @app.route('/api/check-auth', methods=['GET'])
 @require_auth
 def check_auth():
-    db.collection('users').document(request.uid).update({'last_active': datetime.now().isoformat()})
-    return jsonify({
-        'authenticated': True,
-        'role': request.user_data.get('role'),
-        'username': request.user_data.get('username')
-    })
+    user_doc = db.collection('users').document(request.uid).get()
+    if user_doc.exists:
+        user_data = user_doc.to_dict()
+        return jsonify({
+            'authenticated': True,
+            'role': user_data.get('role'),
+            'username': user_data.get('username')
+        })
+    return jsonify({'authenticated': False})
 
 @app.route('/api/user/progress', methods=['GET'])
 @require_auth
 def get_user_progress():
     try:
-        progress = request.user_data.get('progress', {})
+        user_doc = db.collection('users').document(request.uid).get()
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+            
+        progress = user_doc.to_dict().get('progress', {})
         problems_count = len(list(db.collection('problems').stream()))
 
         solved_problems = len([p for p in progress.values() if p.get('solved', False)])
@@ -265,7 +267,8 @@ def update_user_progress():
 @app.route('/api/admin/stats', methods=['GET'])
 @require_auth
 def admin_get_stats():
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
 
     try:
@@ -303,8 +306,10 @@ def admin_get_stats():
 @app.route('/api/admin/users', methods=['GET'])
 @require_auth
 def admin_get_users():
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         users_list = []
         current_time = datetime.now()
@@ -349,14 +354,16 @@ def admin_get_users():
 @app.route('/api/admin/problems', methods=['GET'])
 @require_auth
 def admin_get_problems():
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         problems = [doc.to_dict() for doc in db.collection('problems').order_by('id').stream()]
         for problem in problems:
             solved_count = 0
-            for user_doc in db.collection('users').where('role', '==', 'user').stream():
-                u = user_doc.to_dict()
+            for u_doc in db.collection('users').where('role', '==', 'user').stream():
+                u = u_doc.to_dict()
                 if u.get('progress', {}).get(str(problem['id']), {}).get('solved', False):
                     solved_count += 1
             problem['solved_by_count'] = solved_count
@@ -367,8 +374,10 @@ def admin_get_problems():
 @app.route('/api/admin/problems', methods=['POST'])
 @require_auth
 def admin_add_problem():
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         new_problem = request.json
         problems = list(db.collection('problems').stream())
@@ -382,8 +391,10 @@ def admin_add_problem():
 @app.route('/api/admin/problems/<int:problem_id>', methods=['PUT'])
 @require_auth
 def admin_update_problem(problem_id):
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         updated_problem = request.json
         updated_problem['id'] = problem_id
@@ -395,8 +406,10 @@ def admin_update_problem(problem_id):
 @app.route('/api/admin/problems/<int:problem_id>', methods=['DELETE'])
 @require_auth
 def admin_delete_problem(problem_id):
-    if request.user_data.get('role') != 'admin':
+    user_doc = db.collection('users').document(request.uid).get()
+    if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+
     try:
         db.collection('problems').document(str(problem_id)).delete()
         return jsonify({'success': True})
@@ -406,10 +419,10 @@ def admin_delete_problem(problem_id):
 @app.route('/api/user/heartbeat', methods=['POST'])
 @require_auth
 def user_heartbeat():
-    db.collection('users').document(request.uid).update({'last_active': datetime.now().isoformat()})
     return jsonify({'success': True})
 
 @app.route('/api/run', methods=['POST', 'OPTIONS'])
+@require_auth
 def run_code():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
@@ -481,6 +494,7 @@ print(output_capture.getvalue())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/submit', methods=['POST', 'OPTIONS'])
+@require_auth
 def submit_solution():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
@@ -649,31 +663,28 @@ print(actual_output)
                     pass
 
         if all_passed:
-            token = request.cookies.get('auth_token')
-            if token:
-                try:
-                    decoded = auth.verify_id_token(token)
-                    uid = decoded['uid']
-                    problem_id_str = str(problem_id)
-                    user_ref = db.collection('users').document(uid)
-                    user_doc = user_ref.get()
-                    
-                    if user_doc.exists:
-                        current_progress = user_doc.to_dict().get('progress', {})
-                    else:
-                        current_progress = {}
+            try:
+                uid = request.uid
+                problem_id_str = str(problem_id)
+                user_ref = db.collection('users').document(uid)
+                user_doc = user_ref.get()
+                
+                if user_doc.exists:
+                    current_progress = user_doc.to_dict().get('progress', {})
+                else:
+                    current_progress = {}
 
-                    if problem_id_str not in current_progress:
-                        current_progress[problem_id_str] = {}
+                if problem_id_str not in current_progress:
+                    current_progress[problem_id_str] = {}
 
-                    current_progress[problem_id_str]['solved'] = True
-                    current_progress[problem_id_str]['last_attempt'] = datetime.now().isoformat()
-                    if 'solved_at' not in current_progress[problem_id_str]:
-                        current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
-                    
-                    user_ref.update({'progress': current_progress})
-                except Exception:
-                    pass
+                current_progress[problem_id_str]['solved'] = True
+                current_progress[problem_id_str]['last_attempt'] = datetime.now().isoformat()
+                if 'solved_at' not in current_progress[problem_id_str]:
+                    current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
+                
+                user_ref.update({'progress': current_progress})
+            except Exception:
+                pass
 
         return jsonify({
             'success': all_passed,
