@@ -65,6 +65,17 @@ def serve_index():
         return redirect('/login')
     try:
         auth.verify_id_token(token)
+        return redirect('/dashboard')
+    except Exception:
+        return redirect('/login')
+
+@app.route('/dashboard')
+def serve_dashboard():
+    token = request.cookies.get('auth_token')
+    if not token:
+        return redirect('/login')
+    try:
+        auth.verify_id_token(token)
         return send_from_directory('../public', 'dashboard.html')
     except Exception:
         return redirect('/login')

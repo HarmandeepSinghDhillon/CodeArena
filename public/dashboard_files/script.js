@@ -27,14 +27,6 @@ const increaseFontBtn = document.getElementById('increaseFont');
 const decreaseFontBtn = document.getElementById('decreaseFont');
 const fontSizeDisplay = document.getElementById('fontSizeDisplay');
 
-// Python keywords for syntax highlighting
-const pythonKeywords = [
-    'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue', 'def',
-    'del', 'elif', 'else', 'except', 'False', 'finally', 'for', 'from', 'global',
-    'if', 'import', 'in', 'is', 'lambda', 'None', 'nonlocal', 'not', 'or', 'pass',
-    'raise', 'return', 'True', 'try', 'while', 'with', 'yield'
-];
-
 // Check authentication on page load
 async function checkUserAuth() {
     try {
@@ -42,10 +34,11 @@ async function checkUserAuth() {
         const data = await response.json();
         
         if (!data.authenticated) {
-            window.location.href = '/login';
+            window.location.href = '/';
             return false;
         }
         
+        // If user is admin, redirect to admin panel
         if (data.role === 'admin') {
             window.location.href = '/admin';
             return false;
@@ -54,7 +47,7 @@ async function checkUserAuth() {
         return true;
     } catch (error) {
         console.error('Auth check error:', error);
-        window.location.href = '/index.html';
+        window.location.href = '/';
         return false;
     }
 }
@@ -68,45 +61,13 @@ if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
         try {
             await fetch(`${API_URL}/logout`, { method: 'POST' });
-            window.location.href = '/index.html';
+            window.location.href = '/';
         } catch (error) {
             console.error('Logout error:', error);
-            window.location.href = '/index.html';
+            window.location.href = '/';
         }
     });
 }
-
-// Load user progress and display
-async function loadUserProgress() {
-    try {
-        const response = await fetch(`${API_URL}/user/progress`);
-        const data = await response.json();
-        
-        // You can use this data to show solved problems
-        console.log('User progress:', data);
-        
-        // Mark solved problems in the sidebar
-        if (data.solvedIds) {
-            document.querySelectorAll('.problem-item').forEach(item => {
-                const problemTitle = item.querySelector('.problem-title').textContent;
-                const problemId = parseInt(problemTitle.split('.')[0]);
-                if (data.solvedIds.includes(problemId)) {
-                    item.style.borderLeft = '3px solid var(--success)';
-                    const solvedBadge = document.createElement('span');
-                    solvedBadge.textContent = '✓';
-                    solvedBadge.style.cssText = 'color: var(--success); margin-left: 10px; font-weight: bold;';
-                    item.querySelector('.problem-title').appendChild(solvedBadge);
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Error loading progress:', error);
-    }
-}
-
-// Call this after loading problems
-// Add this line in your loadProblems function after rendering problems list
-// loadUserProgress();
 
 // Heartbeat to keep user session active
 let heartbeatInterval;
@@ -141,7 +102,6 @@ async function loadUserProgress() {
                 const problemId = parseInt(problemTitle.split('.')[0]);
                 
                 if (data.solvedIds.includes(problemId)) {
-                    // Add green checkmark
                     item.style.borderLeft = '3px solid var(--success)';
                     const existingBadge = item.querySelector('.solved-badge');
                     if (!existingBadge) {
@@ -155,79 +115,12 @@ async function loadUserProgress() {
             });
         }
         
-        // Update progress stats in UI if you have a stats section
-        if (data.stats) {
-            const statsHtml = `
-                <div class="progress-stats">
-                    <div class="stat">Solved: ${data.stats.solved}/${data.stats.total}</div>
-                    <div class="stat">Progress: ${Math.round(data.stats.percentage)}%</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${data.stats.percentage}%"></div>
-                    </div>
-                </div>
-            `;
-            
-            // Add stats to sidebar or header
-            const sidebar = document.querySelector('.sidebar-header');
-            if (sidebar && !document.querySelector('.progress-stats')) {
-                const statsDiv = document.createElement('div');
-                statsDiv.className = 'progress-stats';
-                statsDiv.innerHTML = statsHtml;
-                sidebar.after(statsDiv);
-            }
-        }
-        
         return data;
     } catch (error) {
         console.error('Error loading progress:', error);
         return null;
     }
 }
-
-// Call this after loading problems
-// Modify your loadProblems function to call loadUserProgress
-const originalLoadProblems = loadProblems;
-window.loadProblems = async function() {
-    await originalLoadProblems();
-    await loadUserProgress();
-    startHeartbeat();
-};
-
-// Add CSS for progress bar
-const style = document.createElement('style');
-style.textContent = `
-    .progress-stats {
-        padding: 15px;
-        background: var(--bg-tertiary);
-        margin: 10px;
-        border-radius: 10px;
-    }
-    .progress-stats .stat {
-        font-size: 12px;
-        margin-bottom: 5px;
-        color: var(--text-secondary);
-    }
-    .progress-bar {
-        height: 6px;
-        background: var(--bg-primary);
-        border-radius: 3px;
-        overflow: hidden;
-        margin-top: 10px;
-    }
-    .progress-fill {
-        height: 100%;
-        background: var(--success);
-        transition: width 0.3s ease;
-    }
-    .solved-badge {
-        animation: fadeIn 0.3s ease;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: scale(0.5); }
-        to { opacity: 1; transform: scale(1); }
-    }
-`;
-document.head.appendChild(style);
 
 // Clear all localStorage on page load
 function clearAllStorage() {
@@ -238,20 +131,14 @@ function clearAllStorage() {
 
 // Reset all UI to default state
 function resetUIToDefault() {
-    // Reset sidebar to closed state
-    sidebar.classList.remove('open');
-    sidebarOverlay.classList.remove('active');
+    if (sidebar) sidebar.classList.remove('open');
+    if (sidebarOverlay) sidebarOverlay.classList.remove('active');
     
-    // Reset font size to default
     currentFontSize = 16;
-    codeEditor.style.fontSize = currentFontSize + 'px';
-    lineNumbers.style.fontSize = currentFontSize + 'px';
-    if (document.querySelector('.problem-content')) {
-        document.querySelector('.problem-content').style.fontSize = currentFontSize + 'px';
-    }
-    fontSizeDisplay.textContent = currentFontSize;
+    if (codeEditor) codeEditor.style.fontSize = currentFontSize + 'px';
+    if (lineNumbers) lineNumbers.style.fontSize = currentFontSize + 'px';
+    if (fontSizeDisplay) fontSizeDisplay.textContent = currentFontSize;
     
-    // Reset panel widths (remove any inline styles)
     const problemPanel = document.getElementById('problemPanel');
     const editorPanel = document.getElementById('editorPanel');
     if (problemPanel && editorPanel) {
@@ -260,11 +147,9 @@ function resetUIToDefault() {
         editorPanel.style.flex = '';
     }
     
-    // Reset theme to dark
     document.body.removeAttribute('data-theme');
     if (themeToggle) themeToggle.textContent = '🌙';
     
-    // Reset filter to 'All'
     currentFilter = 'all';
     document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -273,7 +158,6 @@ function resetUIToDefault() {
         }
     });
     
-    // Reset active tab to Code tab
     document.querySelectorAll('.editor-tab').forEach(tab => {
         tab.classList.remove('active');
         if (tab.dataset.tab === 'code') {
@@ -286,7 +170,6 @@ function resetUIToDefault() {
     const codeTab = document.getElementById('codeTab');
     if (codeTab) codeTab.classList.add('active');
     
-    // Clear any results display
     const resultsSummary = document.getElementById('resultsSummary');
     const resultsList = document.getElementById('resultsList');
     if (resultsSummary) resultsSummary.innerHTML = '';
@@ -296,40 +179,48 @@ function resetUIToDefault() {
 }
 
 // Toggle Sidebar
-toggleSidebar.addEventListener('click', () => {
-    sidebar.classList.toggle('open');
-    sidebarOverlay.classList.toggle('active');
-});
+if (toggleSidebar) {
+    toggleSidebar.addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+        sidebarOverlay.classList.toggle('active');
+    });
+}
 
-sidebarOverlay.addEventListener('click', () => {
-    sidebar.classList.remove('open');
-    sidebarOverlay.classList.remove('active');
-});
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('active');
+    });
+}
 
 // Font size control
 function updateFontSize() {
-    codeEditor.style.fontSize = currentFontSize + 'px';
-    lineNumbers.style.fontSize = currentFontSize + 'px';
+    if (codeEditor) codeEditor.style.fontSize = currentFontSize + 'px';
+    if (lineNumbers) lineNumbers.style.fontSize = currentFontSize + 'px';
     if (document.querySelector('.problem-content')) {
         document.querySelector('.problem-content').style.fontSize = currentFontSize + 'px';
     }
-    fontSizeDisplay.textContent = currentFontSize;
+    if (fontSizeDisplay) fontSizeDisplay.textContent = currentFontSize;
     updateLineNumbers();
 }
 
-increaseFontBtn.addEventListener('click', () => {
-    if (currentFontSize < MAX_FONT) {
-        currentFontSize += 2;
-        updateFontSize();
-    }
-});
+if (increaseFontBtn) {
+    increaseFontBtn.addEventListener('click', () => {
+        if (currentFontSize < MAX_FONT) {
+            currentFontSize += 2;
+            updateFontSize();
+        }
+    });
+}
 
-decreaseFontBtn.addEventListener('click', () => {
-    if (currentFontSize > MIN_FONT) {
-        currentFontSize -= 2;
-        updateFontSize();
-    }
-});
+if (decreaseFontBtn) {
+    decreaseFontBtn.addEventListener('click', () => {
+        if (currentFontSize > MIN_FONT) {
+            currentFontSize -= 2;
+            updateFontSize();
+        }
+    });
+}
 
 // Load problems
 async function loadProblems() {
@@ -340,6 +231,8 @@ async function loadProblems() {
         if (problemsData.problems.length > 0) {
             loadProblem(problemsData.problems[0]);
         }
+        await loadUserProgress();
+        startHeartbeat();
     } catch (error) {
         console.error('Error loading problems:', error);
     }
@@ -520,7 +413,6 @@ function initResizable() {
         isResizing = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        // Don't save panel width - reset on refresh
     });
 }
 
@@ -570,7 +462,6 @@ async function submitCode() {
     
     const code = codeEditor.value;
     
-    // Switch to results tab
     document.querySelector('[data-tab="results"]').click();
     
     const resultsSummary = document.getElementById('resultsSummary');
@@ -668,35 +559,41 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 
 // Theme toggle
 let isDark = true;
-themeToggle.addEventListener('click', () => {
-    isDark = !isDark;
-    if (isDark) {
-        document.body.removeAttribute('data-theme');
-        themeToggle.textContent = '🌙';
-    } else {
-        document.body.setAttribute('data-theme', 'light');
-        themeToggle.textContent = '☀️';
-    }
-});
+if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+        isDark = !isDark;
+        if (isDark) {
+            document.body.removeAttribute('data-theme');
+            themeToggle.textContent = '🌙';
+        } else {
+            document.body.setAttribute('data-theme', 'light');
+            themeToggle.textContent = '☀️';
+        }
+    });
+}
 
 // Event listeners
-runBtn.addEventListener('click', runCode);
-submitBtn.addEventListener('click', submitCode);
-resetBtn.addEventListener('click', resetCode);
-codeEditor.addEventListener('input', updateLineNumbers);
-codeEditor.addEventListener('scroll', () => {
-    lineNumbers.scrollTop = codeEditor.scrollTop;
-});
+if (runBtn) runBtn.addEventListener('click', runCode);
+if (submitBtn) submitBtn.addEventListener('click', submitCode);
+if (resetBtn) resetBtn.addEventListener('click', resetCode);
+if (codeEditor) {
+    codeEditor.addEventListener('input', updateLineNumbers);
+    codeEditor.addEventListener('scroll', () => {
+        lineNumbers.scrollTop = codeEditor.scrollTop;
+    });
+}
 
 // Keyboard shortcuts
-codeEditor.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        runCode();
-    }
-});
+if (codeEditor) {
+    codeEditor.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runCode();
+        }
+    });
+}
 
-// Initialize - Clear all storage and reset UI on page load
+// Initialize
 clearAllStorage();
 resetUIToDefault();
 loadProblems();
