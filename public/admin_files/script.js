@@ -437,10 +437,10 @@ document.getElementById('logoutBtn')?.addEventListener('click', async () => {
             method: 'POST',
             credentials: 'include'
         });
-        window.location.href = '/index.html';
+        window.location.href = '/login';
     } catch (error) {
         console.error('Logout error:', error);
-        window.location.href = '/index.html';
+        window.location.href = '/login';
     }
 });
 // Auto-refresh for active users (every 30 seconds)

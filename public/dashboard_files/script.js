@@ -42,7 +42,7 @@ async function checkUserAuth() {
         const data = await response.json();
         
         if (!data.authenticated) {
-            window.location.href = '/index.html';
+            window.location.href = '/login';
             return false;
         }
         
