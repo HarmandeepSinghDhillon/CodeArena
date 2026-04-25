@@ -1,4 +1,5 @@
 let selectedRole = 'user';
+
 document.querySelectorAll('.role-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
@@ -6,6 +7,7 @@ document.querySelectorAll('.role-btn').forEach(btn => {
         selectedRole = btn.dataset.role;
     });
 });
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -20,6 +22,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         const response = await fetch('/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', 
             body: JSON.stringify({ username, password, role: selectedRole })
         });
         
@@ -30,7 +33,6 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             messageDiv.textContent = data.message;
             messageDiv.style.display = 'block';
             
-            // Redirect based on role
             setTimeout(() => {
                 if (data.role === 'admin') {
                     window.location.href = '/admin';

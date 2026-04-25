@@ -10,7 +10,6 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
     messageDiv.className = 'message';
     messageDiv.style.display = 'none';
     
-    // Validation
     if (username.length < 3) {
         messageDiv.className = 'message error';
         messageDiv.textContent = 'Username must be at least 3 characters';
@@ -36,6 +35,7 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
         const response = await fetch('/api/signup', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', 
             body: JSON.stringify({ username, email, password })
         });
         
@@ -46,7 +46,6 @@ document.getElementById('signupForm').addEventListener('submit', async (e) => {
             messageDiv.textContent = data.message;
             messageDiv.style.display = 'block';
             
-            // Redirect to user dashboard after 1.5 seconds
             setTimeout(() => {
                 window.location.href = '/';
             }, 1500);
