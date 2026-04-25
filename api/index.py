@@ -13,7 +13,14 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-app = Flask(__name__, static_folder='../public', static_url_path='')
+# --- CRITICAL PATH FIX FOR VERCEL ---
+# Dynamically find the absolute path to the public folder
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+public_dir = os.path.join(root_dir, 'public')
+
+# Use the absolute public_dir
+app = Flask(__name__, static_folder=public_dir, static_url_path='')
 app.secret_key = os.environ.get('SECRET_KEY', 'harisonputter9878')
 
 CORS(app, supports_credentials=True)
@@ -60,7 +67,7 @@ def serve_index():
         return redirect('/login')
     try:
         auth.verify_id_token(token)
-        return send_from_directory('../public', 'index.html')
+        return send_from_directory(public_dir, 'index.html')
     except Exception:
         return redirect('/login')
 
@@ -73,7 +80,7 @@ def serve_admin():
         decoded = auth.verify_id_token(token)
         user_doc = db.collection('users').document(decoded['uid']).get()
         if user_doc.exists and user_doc.to_dict().get('role') == 'admin':
-            return send_from_directory('../public', 'admin.html')
+            return send_from_directory(public_dir, 'admin.html')
         return redirect('/login')
     except Exception:
         return redirect('/login')
@@ -87,7 +94,7 @@ def serve_login():
             return redirect('/')
         except Exception:
             pass
-    return send_from_directory('../public', 'login.html')
+    return send_from_directory(public_dir, 'login.html')
 
 @app.route('/signup')
 def serve_signup():
@@ -98,11 +105,12 @@ def serve_signup():
             return redirect('/')
         except Exception:
             pass
-    return send_from_directory('../public', 'signup.html')
+    return send_from_directory(public_dir, 'signup.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    return send_from_directory('../public', path)
+    # This acts as the catch-all for your JS, CSS, and files
+    return send_from_directory(public_dir, path)
 
 @app.route('/api/signup', methods=['POST', 'OPTIONS'])
 def signup():

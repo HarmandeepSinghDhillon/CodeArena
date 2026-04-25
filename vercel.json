@@ -4,18 +4,12 @@
     {
       "src": "api/index.py",
       "use": "@vercel/python"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "api/index.py" },
-    { "src": "/login", "dest": "api/index.py" },
-    { "src": "/signup", "dest": "api/index.py" },
-    { "src": "/admin", "dest": "api/index.py" },
-    { "src": "/", "dest": "api/index.py" },
-    { "src": "/(.*)", "dest": "public/$1" }
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.py"
+    }
   ]
 }
