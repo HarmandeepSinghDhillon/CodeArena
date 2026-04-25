@@ -13,14 +13,7 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-# --- CRITICAL PATH FIX FOR VERCEL ---
-# Dynamically find the absolute path to the public folder
-current_dir = os.path.dirname(os.path.abspath(__file__))
-root_dir = os.path.dirname(current_dir)
-public_dir = os.path.join(root_dir, 'public')
-
-# Use the absolute public_dir
-app = Flask(__name__, static_folder=public_dir, static_url_path='')
+app = Flask(__name__, static_folder='../public', static_url_path='')
 app.secret_key = os.environ.get('SECRET_KEY', 'harisonputter9878')
 
 CORS(app, supports_credentials=True)
@@ -67,7 +60,7 @@ def serve_index():
         return redirect('/login')
     try:
         auth.verify_id_token(token)
-        return send_from_directory(public_dir, 'index.html')
+        return send_from_directory('../public', 'index.html')
     except Exception:
         return redirect('/login')
 
@@ -80,7 +73,7 @@ def serve_admin():
         decoded = auth.verify_id_token(token)
         user_doc = db.collection('users').document(decoded['uid']).get()
         if user_doc.exists and user_doc.to_dict().get('role') == 'admin':
-            return send_from_directory(public_dir, 'admin.html')
+            return send_from_directory('../public', 'admin.html')
         return redirect('/login')
     except Exception:
         return redirect('/login')
@@ -94,7 +87,7 @@ def serve_login():
             return redirect('/')
         except Exception:
             pass
-    return send_from_directory(public_dir, 'login.html')
+    return send_from_directory('../public', 'login.html')
 
 @app.route('/signup')
 def serve_signup():
@@ -105,12 +98,11 @@ def serve_signup():
             return redirect('/')
         except Exception:
             pass
-    return send_from_directory(public_dir, 'signup.html')
+    return send_from_directory('../public', 'signup.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # This acts as the catch-all for your JS, CSS, and files
-    return send_from_directory(public_dir, path)
+    return send_from_directory('../public', path)
 
 @app.route('/api/signup', methods=['POST', 'OPTIONS'])
 def signup():
@@ -223,7 +215,6 @@ def get_user_progress():
         user_doc = db.collection('users').document(request.uid).get()
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-            
         progress = user_doc.to_dict().get('progress', {})
         problems_count = len(list(db.collection('problems').stream()))
 
@@ -317,7 +308,6 @@ def admin_get_users():
     user_doc = db.collection('users').document(request.uid).get()
     if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-
     try:
         users_list = []
         current_time = datetime.now()
@@ -365,7 +355,6 @@ def admin_get_problems():
     user_doc = db.collection('users').document(request.uid).get()
     if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-
     try:
         problems = [doc.to_dict() for doc in db.collection('problems').order_by('id').stream()]
         for problem in problems:
@@ -385,7 +374,6 @@ def admin_add_problem():
     user_doc = db.collection('users').document(request.uid).get()
     if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-
     try:
         new_problem = request.json
         problems = list(db.collection('problems').stream())
@@ -402,7 +390,6 @@ def admin_update_problem(problem_id):
     user_doc = db.collection('users').document(request.uid).get()
     if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-
     try:
         updated_problem = request.json
         updated_problem['id'] = problem_id
@@ -417,7 +404,6 @@ def admin_delete_problem(problem_id):
     user_doc = db.collection('users').document(request.uid).get()
     if not user_doc.exists or user_doc.to_dict().get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-
     try:
         db.collection('problems').document(str(problem_id)).delete()
         return jsonify({'success': True})
@@ -430,7 +416,6 @@ def user_heartbeat():
     return jsonify({'success': True})
 
 @app.route('/api/run', methods=['POST', 'OPTIONS'])
-@require_auth
 def run_code():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
@@ -502,7 +487,6 @@ print(output_capture.getvalue())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/submit', methods=['POST', 'OPTIONS'])
-@require_auth
 def submit_solution():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
@@ -671,28 +655,31 @@ print(actual_output)
                     pass
 
         if all_passed:
-            try:
-                uid = request.uid
-                problem_id_str = str(problem_id)
-                user_ref = db.collection('users').document(uid)
-                user_doc = user_ref.get()
-                
-                if user_doc.exists:
-                    current_progress = user_doc.to_dict().get('progress', {})
-                else:
-                    current_progress = {}
+            token = request.cookies.get('auth_token')
+            if token:
+                try:
+                    decoded = auth.verify_id_token(token)
+                    uid = decoded['uid']
+                    problem_id_str = str(problem_id)
+                    user_ref = db.collection('users').document(uid)
+                    user_doc = user_ref.get()
+                    
+                    if user_doc.exists:
+                        current_progress = user_doc.to_dict().get('progress', {})
+                    else:
+                        current_progress = {}
 
-                if problem_id_str not in current_progress:
-                    current_progress[problem_id_str] = {}
+                    if problem_id_str not in current_progress:
+                        current_progress[problem_id_str] = {}
 
-                current_progress[problem_id_str]['solved'] = True
-                current_progress[problem_id_str]['last_attempt'] = datetime.now().isoformat()
-                if 'solved_at' not in current_progress[problem_id_str]:
-                    current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
-                
-                user_ref.update({'progress': current_progress})
-            except Exception:
-                pass
+                    current_progress[problem_id_str]['solved'] = True
+                    current_progress[problem_id_str]['last_attempt'] = datetime.now().isoformat()
+                    if 'solved_at' not in current_progress[problem_id_str]:
+                        current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
+                    
+                    user_ref.update({'progress': current_progress})
+                except Exception:
+                    pass
 
         return jsonify({
             'success': all_passed,
