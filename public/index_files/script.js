@@ -37,7 +37,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                 if (data.role === 'admin') {
                     window.location.href = '/admin';
                 } else {
-                    window.location.href = '/';
+                    window.location.href = '/dashboard';
                 }
             }, 1000);
         } else {
