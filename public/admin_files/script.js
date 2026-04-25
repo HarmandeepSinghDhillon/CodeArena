@@ -13,7 +13,7 @@ async function checkAuth() {
         const data = await response.json();
         
         if (!data.authenticated || data.role !== 'admin') {
-            window.location.href = '/login.html';
+            window.location.href = '/index.html';
             return false;
         }
         
@@ -22,7 +22,7 @@ async function checkAuth() {
         return true;
     } catch (error) {
         console.error('Auth check error:', error);
-        window.location.href = '/login.html';
+        window.location.href = '/index.html';
         return false;
     }
 }
@@ -437,10 +437,10 @@ document.getElementById('logoutBtn')?.addEventListener('click', async () => {
             method: 'POST',
             credentials: 'include'
         });
-        window.location.href = '/login.html';
+        window.location.href = '/index.html';
     } catch (error) {
         console.error('Logout error:', error);
-        window.location.href = '/login.html';
+        window.location.href = '/index.html';
     }
 });
 // Auto-refresh for active users (every 30 seconds)
