@@ -3,143 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeArena - Practice Python Coding Problems</title>
+    <title>CodeArena - Login</title>
     <link rel="icon" type="image/x-icon" href="logo.png">
     <link rel="stylesheet" href="index_files/style.css">
 </head>
 <body>
-    <div class="app">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo">
-                <button id="toggleSidebar" class="menu-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                    </svg>
-                </button>
-                <div class="logo-content">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#ff4444"/>
-                        <path d="M12 6v6l4 2" stroke="white" stroke-width="2" fill="none"/>
-                        <circle cx="12" cy="12" r="8" fill="#ff6666"/>
-                    </svg>
-                    <span>CodeArena</span>
-                </div>
-            </div>
-            <div class="header-controls">
-                <div class="font-controls">
-                    <button id="decreaseFont" class="font-btn" title="Decrease font">A-</button>
-                    <span id="fontSizeDisplay" class="font-size">16</span>
-                    <button id="increaseFont" class="font-btn" title="Increase font">A+</button>
-                </div>
-                <button id="themeToggle" class="theme-btn">🌙</button>
-                <button id="logoutBtn" class="theme-btn" style="background: var(--error);">🚪 Logout</button>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <div class="main-container">
-            <!-- Overlay Sidebar -->
-            <div id="sidebarOverlay" class="sidebar-overlay"></div>
-            <div id="sidebar" class="sidebar">
-                <div class="sidebar-header">
-                    <h3>Problems</h3>
-                    <div class="filter-buttons">
-                        <button class="filter-btn active" data-filter="all">All</button>
-                        <button class="filter-btn" data-filter="Easy">Easy</button>
-                        <button class="filter-btn" data-filter="Medium">Medium</button>
-                        <button class="filter-btn" data-filter="Hard">Hard</button>
-                    </div>
-                </div>
-                <div id="problemsList" class="problems-list">
-                    <!-- Problems will be loaded here -->
-                </div>
-            </div>
-
-            <!-- Right Content Area -->
-            <div class="content-area" id="contentArea">
-                <!-- Problem Panel (Left side of right area) -->
-                <div class="problem-panel" id="problemPanel">
-                    <div class="problem-header">
-                        <h2 id="problemTitle">Two Sum</h2>
-                        <span id="problemDifficulty" class="difficulty easy">Easy</span>
-                    </div>
-                    <div class="problem-content" id="problemContent">
-                        <div id="problemDescription" class="description"></div>
-                        
-                        <div class="examples-section">
-                            <h4>📖 Examples:</h4>
-                            <div id="problemExamples"></div>
-                        </div>
-                        
-                        <div class="constraints-section">
-                            <h4>⚠️ Constraints:</h4>
-                            <ul id="problemConstraints"></ul>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Resizer -->
-                <div id="resizer" class="resizer"></div>
-
-                <!-- Editor Panel (Right side of right area) -->
-                <div class="editor-panel" id="editorPanel">
-                    <div class="editor-header">
-                        <div class="editor-tabs">
-                            <button class="editor-tab active" data-tab="code">📝 Code</button>
-                            <button class="editor-tab" data-tab="testcases">🧪 Testcases</button>
-                            <button class="editor-tab" data-tab="results">📊 Results</button>
-                        </div>
-                        <div class="editor-actions">
-                            <button id="runCodeBtn" class="action-btn run">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M8 5v14l11-7z"/>
-                                </svg>
-                                Run
-                            </button>
-                            <button id="submitCodeBtn" class="action-btn submit">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                                Submit
-                            </button>
-                            <button id="resetCodeBtn" class="action-btn reset">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                                    <path d="M3 3v5h5"/>
-                                </svg>
-                                Reset
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Code Tab -->
-                    <div id="codeTab" class="editor-tab-content active">
-                        <div class="editor-wrapper">
-                            <div class="line-numbers" id="lineNumbers"></div>
-                            <textarea id="codeEditor" class="code-editor" spellcheck="false"></textarea>
-                        </div>
-                    </div>
-                    
-                    <!-- Testcases Tab -->
-                    <div id="testcasesTab" class="editor-tab-content">
-                        <div class="testcases-container">
-                            <div id="testCasesList"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Results Tab -->
-                    <div id="resultsTab" class="editor-tab-content">
-                        <div class="results-container">
-                            <div id="resultsSummary" class="results-summary"></div>
-                            <div id="resultsList" class="results-list"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <div class="login-container">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#ff4444"/>
+                <path d="M12 6v6l4 2" stroke="white" stroke-width="2" fill="none"/>
+                <circle cx="12" cy="12" r="8" fill="#ff6666"/>
+            </svg>
+            <h1>CodeArena</h1>
+            <p>Login to continue coding</p>
         </div>
+
+        <div class="role-selector">
+            <button class="role-btn active" data-role="user">👤 User</button>
+            <button class="role-btn" data-role="admin">👑 Admin</button>
+        </div>
+
+        <form id="loginForm" action="/api/login" method="POST">
+            <div class="input-group">
+                <label>Username</label>
+                <input type="text" id="username" placeholder="Enter your username" required>
+            </div>
+            <div class="input-group">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit" class="login-btn">Login</button>
+            <div class="signup-link" style="text-align: center; margin-top: 20px;">
+                Don't have an account? <a href="/signup" style="color: var(--accent-primary);">Sign up here</a>
+            </div>
+        </form>
+
+        <div id="message" class="message"></div>
     </div>
 
     <script src="index_files/script.js"></script>
