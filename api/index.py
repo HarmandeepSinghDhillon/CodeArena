@@ -518,6 +518,7 @@ import io
 import json
 import traceback
 import ast
+import re
 
 actual_output = None
 output_capture = io.StringIO()
@@ -529,16 +530,18 @@ _input_index = 0
 def parse_input(input_str):
     if not input_str:
         return []
-    normalized = input_str.replace('\\n', '\\n')
-    lines = normalized.split('\\n')
+    
+    # This regex splits by any whitespace (spaces, tabs, newlines)
+    # It ensures that "1 2" becomes ["1", "2"]
+    parts = re.split(r'\\s+', input_str.strip())
+    
     result = []
-    for line in lines:
-        line = line.strip()
-        if line:
+    for part in parts:
+        if part:
             try:
-                result.append(ast.literal_eval(line))
+                result.append(ast.literal_eval(part))
             except Exception:
-                result.append(line)
+                result.append(part)
     return result
 
 try:
@@ -567,6 +570,7 @@ try:
         func = eval('solution')
         found_function = True
         try:
+            # Dynamically pass all whitespace-separated parts as arguments
             result = func(*input_values)
             
             if isinstance(result, bool):
