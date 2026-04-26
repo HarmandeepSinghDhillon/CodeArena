@@ -529,7 +529,8 @@ _input_index = 0
 def parse_input(input_str):
     if not input_str:
         return []
-    lines = input_str.strip().split('\\n')
+    normalized = input_str.replace('\\n', '\\n')
+    lines = normalized.split('\\n')
     result = []
     for line in lines:
         line = line.strip()
@@ -560,33 +561,28 @@ try:
     exec(\'\'\'
 {escaped_code}
 \'\'\')
-    function_names = ['solution']
     found_function = False
-    for func_name in function_names:
-        if func_name in dir():
-            func = eval(func_name)
-            found_function = True
-            try:
-                if len(input_values) == 1:
-                    result = func(input_values[0])
-                elif len(input_values) == 2:
-                    result = func(input_values[0], input_values[1])
-                else:
-                    result = func(*input_values)
-                if isinstance(result, bool):
-                    actual_output = str(result).lower()
-                elif isinstance(result, list):
-                    actual_output = str(result)
-                else:
-                    actual_output = str(result)
-                break
-            except Exception as e:
-                actual_output = f"Error calling function: {{str(e)}}"
-                break
+    
+    if 'solution' in dir():
+        func = eval('solution')
+        found_function = True
+        try:
+            result = func(*input_values)
+            
+            if isinstance(result, bool):
+                actual_output = str(result).lower()
+            elif isinstance(result, list):
+                actual_output = str(result)
+            else:
+                actual_output = str(result)
+        except Exception as e:
+            actual_output = f"Error calling function: {{str(e)}}"
+            
     if not found_function:
         actual_output = output_capture.getvalue().strip()
         if not actual_output:
             actual_output = "No output generated"
+            
 except Exception as e:
     actual_output = f"Error: {{str(e)}}"
     traceback.print_exc()
