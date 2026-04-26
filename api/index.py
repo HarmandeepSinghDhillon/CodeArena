@@ -428,69 +428,40 @@ def run_code():
         data = request.json
         code = data.get('code', '')
         user_input = data.get('input', '')
-        
         if not code.strip():
             return jsonify({'error': 'No code provided'}), 400
 
-        # Parse user input if provided
-        input_lines = user_input.strip().split('\n') if user_input else []
-        parsed_inputs = []
-        for line in input_lines:
-            line = line.strip()
-            if line:
-                try:
-                    parsed_inputs.append(ast.literal_eval(line))
-                except:
-                    parsed_inputs.append(line)
-        
-        test_code = f'''
+        wrapper_code = f'''
+import builtins
 import sys
 import io
 import traceback
-import ast
 
 output_capture = io.StringIO()
 sys.stdout = output_capture
 
-# Parse input
-input_values = {repr(parsed_inputs)}
-input_index = 0
+_original_input = builtins.input
 
-def custom_input(prompt=''):
-    global input_index
-    if input_index < len(input_values):
-        val = input_values[input_index]
-        input_index += 1
-        return str(val) if not isinstance(val, str) else val
-    return ""
+def _custom_input(prompt=''):
+    try:
+        return _original_input()
+    except EOFError:
+        return ""
 
-import builtins
-builtins.input = custom_input
+builtins.input = _custom_input
 
-# Execute user code
 try:
 {chr(10).join('    ' + line for line in code.split(chr(10)))}
 except Exception as e:
     print(f"Error: {{e}}")
     traceback.print_exc()
 
-# Try to call solution() function if it exists
-try:
-    result = solution(*input_values)
-    print(result)
-except NameError:
-    # No solution function, just output whatever was printed
-    pass
-
-output = output_capture.getvalue()
-if output:
-    print(output)
+sys.stdout = sys.__stdout__
+print(output_capture.getvalue())
 '''
-        
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
-            f.write(test_code)
+            f.write(wrapper_code)
             temp_file = f.name
-        
         try:
             process = subprocess.Popen(
                 [sys.executable, temp_file],
@@ -501,14 +472,12 @@ if output:
                 encoding='utf-8'
             )
             try:
-                stdout, stderr = process.communicate(timeout=EXECUTION_TIMEOUT)
+                stdout, stderr = process.communicate(input=user_input, timeout=EXECUTION_TIMEOUT)
                 output = stdout.strip()
-                
                 if stderr:
                     return jsonify({'output': stderr, 'error': True})
                 else:
                     return jsonify({'output': output if output else 'Code executed successfully (no output)', 'error': False})
-                    
             except subprocess.TimeoutExpired:
                 process.kill()
                 return jsonify({'output': 'Error: Code execution timed out', 'error': True})
@@ -517,7 +486,7 @@ if output:
         finally:
             try:
                 os.unlink(temp_file)
-            except:
+            except Exception:
                 pass
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -531,89 +500,103 @@ def submit_solution():
         code = data.get('code', '')
         problem_id = data.get('problemId')
         test_cases = data.get('testCases', [])
-        
         if not code.strip():
             return jsonify({'error': 'No code provided'}), 400
 
         results = []
         all_passed = True
-        
         for i, test_case in enumerate(test_cases):
             test_input = test_case.get('input', '')
             expected_output = test_case.get('expected', '').strip()
+            escaped_test_input = test_input.replace("'''", "\\'\\'\\'").replace('\\', '\\\\')
+            escaped_code = code.replace("'''", "\\'\\'\\'").replace('\\', '\\\\')
             
-            # Parse the input
-            input_lines = test_input.strip().split('\n')
-            parsed_args = []
-            
-            for line in input_lines:
-                line = line.strip()
-                if line:
-                    try:
-                        parsed_args.append(ast.literal_eval(line))
-                    except:
-                        parsed_args.append(line)
-            
-            # Build test code - ALWAYS uses solution() function
             test_code = f'''
+import builtins
 import sys
 import io
+import json
 import traceback
 import ast
 
-# Capture output
+actual_output = None
 output_capture = io.StringIO()
 sys.stdout = output_capture
 
-# Parse input function
-def parse_input_line(line):
-    try:
-        return ast.literal_eval(line.strip())
-    except:
-        return line.strip()
+_input_values = []
+_input_index = 0
 
-# Parse the test input
-input_raw = {repr(test_input)}
-input_lines = input_raw.strip().split('\\n')
-parsed_inputs = []
-for line in input_lines:
-    if line.strip():
-        parsed_inputs.append(parse_input_line(line))
+def parse_input(input_str):
+    if not input_str:
+        return []
+    lines = input_str.strip().split('\\n')
+    result = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            try:
+                result.append(ast.literal_eval(line))
+            except Exception:
+                result.append(line)
+    return result
 
-# Execute user code (which should define solution() function)
 try:
-    exec('''
-{code}
-''')
+    input_values = parse_input(\'\'\'{escaped_test_input}\'\'\')
 except Exception as e:
-    print(f"Error in user code: {{str(e)}}")
+    input_values = []
+    print(f"Error parsing input: {{e}}")
+
+def _custom_input(prompt=''):
+    global _input_index
+    if _input_index < len(input_values):
+        val = input_values[_input_index]
+        _input_index += 1
+        return str(val) if not isinstance(val, str) else val
+    return ""
+
+builtins.input = _custom_input
+
+try:
+    exec(\'\'\'
+{escaped_code}
+\'\'\')
+    function_names = ['solution']
+    found_function = False
+    for func_name in function_names:
+        if func_name in dir():
+            func = eval(func_name)
+            found_function = True
+            try:
+                if len(input_values) == 1:
+                    result = func(input_values[0])
+                elif len(input_values) == 2:
+                    result = func(input_values[0], input_values[1])
+                else:
+                    result = func(*input_values)
+                if isinstance(result, bool):
+                    actual_output = str(result).lower()
+                elif isinstance(result, list):
+                    actual_output = str(result)
+                else:
+                    actual_output = str(result)
+                break
+            except Exception as e:
+                actual_output = f"Error calling function: {{str(e)}}"
+                break
+    if not found_function:
+        actual_output = output_capture.getvalue().strip()
+        if not actual_output:
+            actual_output = "No output generated"
+except Exception as e:
+    actual_output = f"Error: {{str(e)}}"
     traceback.print_exc()
 
-# Call the solution function
-try:
-    result = solution(*parsed_inputs)
-    
-    # Convert result to string for output
-    if isinstance(result, bool):
-        output = str(result).lower()
-    elif isinstance(result, list):
-        output = str(result)
-    elif isinstance(result, dict):
-        output = str(result)
-    else:
-        output = str(result) if result is not None else "None"
-    
-    print(output)
-except NameError:
-    print("Error: No solution() function found. Please define a function named 'solution'.")
-except Exception as e:
-    print(f"Error calling solution(): {{str(e)}}")
+sys.stdout = sys.__stdout__
+print(actual_output)
 '''
-            
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
                 f.write(test_code)
                 temp_file = f.name
-            
             try:
                 process = subprocess.Popen(
                     [sys.executable, temp_file],
@@ -623,65 +606,59 @@ except Exception as e:
                     text=True,
                     encoding='utf-8'
                 )
-                
                 try:
                     stdout, stderr = process.communicate(timeout=EXECUTION_TIMEOUT)
+                    output_lines = stdout.strip().split('\n')
+                    actual_output = output_lines[-1] if output_lines else ""
+                    actual_output = actual_output.strip()
+                    expected_output_clean = expected_output.strip()
                     
-                    if stderr and 'Error' in stderr:
-                        results.append({
-                            'testCase': i + 1,
-                            'input': test_input,
-                            'expected': expected_output,
-                            'output': f'Error: {stderr[:200]}',
-                            'passed': False
-                        })
+                    if expected_output_clean.lower() in ['true', 'false']:
+                        actual_output = actual_output.lower()
+                    
+                    passed = actual_output == expected_output_clean
+                    if not passed:
+                        try:
+                            actual_parsed = ast.literal_eval(actual_output)
+                            expected_parsed = ast.literal_eval(expected_output_clean)
+                            passed = actual_parsed == expected_parsed
+                        except Exception:
+                            pass
+                    
+                    results.append({
+                        'testCase': i + 1,
+                        'input': test_input,
+                        'expected': expected_output_clean,
+                        'output': actual_output,
+                        'passed': passed
+                    })
+                    if not passed:
                         all_passed = False
-                    else:
-                        actual_output = stdout.strip() if stdout.strip() else '(no output)'
-                        
-                        # Normalize for comparison
-                        expected_normalized = expected_output.strip().replace(' ', '')
-                        actual_normalized = actual_output.strip().replace(' ', '')
-                        
-                        passed = actual_normalized == expected_normalized
-                        
-                        results.append({
-                            'testCase': i + 1,
-                            'input': test_input,
-                            'expected': expected_output,
-                            'output': actual_output,
-                            'passed': passed
-                        })
-                        if not passed:
-                            all_passed = False
-                            
                 except subprocess.TimeoutExpired:
                     process.kill()
                     results.append({
                         'testCase': i + 1,
                         'input': test_input,
-                        'expected': expected_output,
-                        'output': 'Timeout (exceeded 10 seconds)',
+                        'expected': expected_output_clean,
+                        'output': 'Timeout',
                         'passed': False
                     })
                     all_passed = False
-                    
             except Exception as e:
                 results.append({
                     'testCase': i + 1,
                     'input': test_input,
-                    'expected': expected_output,
-                    'output': f'Execution error: {str(e)}',
+                    'expected': expected_output_clean,
+                    'output': f'Error: {str(e)}',
                     'passed': False
                 })
                 all_passed = False
             finally:
                 try:
                     os.unlink(temp_file)
-                except:
+                except Exception:
                     pass
 
-        # Update user progress if all tests passed
         if all_passed:
             token = request.cookies.get('auth_token')
             if token:
@@ -706,8 +683,8 @@ except Exception as e:
                         current_progress[problem_id_str]['solved_at'] = datetime.now().isoformat()
                     
                     user_ref.update({'progress': current_progress})
-                except Exception as e:
-                    print(f"Progress update error: {e}")
+                except Exception:
+                    pass
 
         return jsonify({
             'success': all_passed,
@@ -715,7 +692,6 @@ except Exception as e:
             'totalTests': len(test_cases),
             'passedTests': sum(1 for r in results if r['passed'])
         })
-        
     except Exception as e:
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
