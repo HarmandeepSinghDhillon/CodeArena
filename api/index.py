@@ -560,7 +560,7 @@ try:
     exec(\'\'\'
 {escaped_code}
 \'\'\')
-    function_names = ['two_sum', 'reverse_string', 'is_palindrome', 'is_valid']
+    function_names = ['solution']
     found_function = False
     for func_name in function_names:
         if func_name in dir():
