@@ -21,6 +21,7 @@ public class DatabaseConfig {
 
     @Bean
     public DataSource dataSource() {
+        System.out.println("[DatabaseConfig] RAW DB URL RECEIVED: " + (dbUrl == null ? "NULL" : "'" + dbUrl.replaceAll(":[^@/]+@", ":****@") + "'"));
         String cleanUrl = dbUrl;
         String cleanUsername = username;
         String cleanPassword = password;
