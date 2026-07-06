@@ -26,30 +26,56 @@ public class DatabaseConfig {
         // Handle standard postgres:// or postgresql:// URLs (commonly provided by Supabase/Render)
         if (dbUrl != null && (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"))) {
             try {
-                // Parse standard URI: postgres://user:password@host:port/database
-                URI uri = new URI(dbUrl);
-                String host = uri.getHost();
-                int port = uri.getPort();
-                String path = uri.getPath();
-                String userInfo = uri.getUserInfo();
+                // Strip the protocol prefix
+                String stripped = dbUrl.startsWith("postgres://") ? dbUrl.substring(11) : dbUrl.substring(13);
                 
-                String cleanUsername = username;
-                String cleanPassword = password;
-                
-                if (userInfo != null && userInfo.contains(":")) {
-                    String[] parts = userInfo.split(":", 2);
-                    cleanUsername = parts[0];
-                    cleanPassword = parts[1];
+                // Find the last '@' to split credentials from connection info
+                int lastAt = stripped.lastIndexOf('@');
+                if (lastAt == -1) {
+                    throw new IllegalArgumentException("Invalid connection URL format");
                 }
                 
-                if (port == -1) {
-                    port = 5432; // Default postgres port
+                String credentials = stripped.substring(0, lastAt);
+                String connectionInfo = stripped.substring(lastAt + 1);
+                
+                // Parse username and password
+                String cleanUsername = username;
+                String cleanPassword = password;
+                int colonIndex = credentials.indexOf(':');
+                if (colonIndex != -1) {
+                    cleanUsername = credentials.substring(0, colonIndex);
+                    cleanPassword = credentials.substring(colonIndex + 1);
+                }
+                
+                // Parse host, port, and database path
+                int slashIndex = connectionInfo.indexOf('/');
+                if (slashIndex == -1) {
+                    throw new IllegalArgumentException("Missing database path");
+                }
+                
+                String hostAndPort = connectionInfo.substring(0, slashIndex);
+                String databasePath = connectionInfo.substring(slashIndex); // starts with '/'
+                
+                String host = hostAndPort;
+                int port = 5432;
+                int portColonIndex = hostAndPort.lastIndexOf(':');
+                if (portColonIndex != -1) {
+                    host = hostAndPort.substring(0, portColonIndex);
+                    try {
+                        port = Integer.parseInt(hostAndPort.substring(portColonIndex + 1));
+                    } catch (NumberFormatException nfe) {
+                        // ignore and use default port
+                    }
                 }
                 
                 // Format as JDBC postgres url
-                cleanUrl = "jdbc:postgresql://" + host + ":" + port + path;
+                cleanUrl = "jdbc:postgresql://" + host + ":" + port + databasePath;
                 if (!cleanUrl.contains("sslmode")) {
-                    cleanUrl += "?sslmode=require";
+                    if (cleanUrl.contains("?")) {
+                        cleanUrl += "&sslmode=require";
+                    } else {
+                        cleanUrl += "?sslmode=require";
+                    }
                 }
                 
                 return DataSourceBuilder.create()
