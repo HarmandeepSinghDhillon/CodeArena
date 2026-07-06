@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://codearena-backend.onrender.com/api/:path*"
+      "destination": "https://codearena-e3o5.onrender.com/api/:path*"
     }
   ]
 }
