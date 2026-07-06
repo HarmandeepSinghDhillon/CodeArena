@@ -21,7 +21,6 @@ public class DatabaseConfig {
 
     @Bean
     public DataSource dataSource() {
-        System.out.println("[DatabaseConfig] RAW DB URL RECEIVED: " + (dbUrl == null ? "NULL" : "'" + dbUrl.replaceAll(":[^@/]+@", ":****@") + "'"));
         String cleanUrl = dbUrl;
         String cleanUsername = username;
         String cleanPassword = password;
@@ -115,32 +114,19 @@ public class DatabaseConfig {
 
         System.out.println("[DatabaseConfig] Connecting to database: " + cleanUrl + " as user: " + cleanUsername);
 
-        DataSource dataSource;
         if (isPostgres) {
-            dataSource = DataSourceBuilder.create()
+            return DataSourceBuilder.create()
                     .url(cleanUrl)
                     .username(cleanUsername)
                     .password(cleanPassword)
                     .driverClassName("org.postgresql.Driver")
                     .build();
         } else {
-            dataSource = DataSourceBuilder.create()
+            return DataSourceBuilder.create()
                     .url(cleanUrl)
                     .username(cleanUsername)
                     .password(cleanPassword)
                     .build();
         }
-
-        // Test connection immediately to print clean diagnostic info if it fails
-        try (java.sql.Connection conn = dataSource.getConnection()) {
-            System.out.println("[DatabaseConfig] DATABASE CONNECTION VERIFICATION SUCCESSFUL!");
-        } catch (java.sql.SQLException e) {
-            System.err.println("[DatabaseConfig] ERROR: DATABASE CONNECTION VERIFICATION FAILED!");
-            System.err.println("[DatabaseConfig] Error Code: " + e.getErrorCode());
-            System.err.println("[DatabaseConfig] SQL State: " + e.getSQLState());
-            e.printStackTrace();
-        }
-
-        return dataSource;
     }
 }

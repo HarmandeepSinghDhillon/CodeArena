@@ -77,13 +77,13 @@ public class ApiController {
         String password = payload.get("password");
         String role = payload.getOrDefault("role", "user");
 
-        // Convenience hack: Auto-create an admin user if you try to log in as admin and it doesn't exist yet
         if ("admin".equals(username) && "admin".equals(role) && userRepository.findByUsername("admin").isEmpty()) {
             User adminUser = new User();
             adminUser.setUsername("admin");
             adminUser.setPassword(password);
             adminUser.setRole("admin");
             adminUser.setCreatedAt(LocalDateTime.now());
+            adminUser.setLastActive(LocalDateTime.now());
             userRepository.save(adminUser);
         }
 
