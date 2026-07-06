@@ -22,78 +22,111 @@ public class DatabaseConfig {
     @Bean
     public DataSource dataSource() {
         String cleanUrl = dbUrl;
-        
-        // Handle standard postgres:// or postgresql:// URLs (commonly provided by Supabase/Render)
-        if (dbUrl != null && (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://"))) {
-            try {
-                // Strip the protocol prefix
-                String stripped = dbUrl.startsWith("postgres://") ? dbUrl.substring(11) : dbUrl.substring(13);
-                
-                // Find the last '@' to split credentials from connection info
-                int lastAt = stripped.lastIndexOf('@');
-                if (lastAt == -1) {
-                    throw new IllegalArgumentException("Invalid connection URL format");
+        String cleanUsername = username;
+        String cleanPassword = password;
+        boolean isPostgres = false;
+
+        if (dbUrl != null) {
+            String urlLower = dbUrl.toLowerCase();
+            if (urlLower.startsWith("postgres://") || urlLower.startsWith("postgresql://")) {
+                isPostgres = true;
+                try {
+                    // Strip protocol prefix
+                    String stripped = dbUrl.startsWith("postgres://") ? dbUrl.substring(11) : dbUrl.substring(13);
+                    
+                    int lastAt = stripped.lastIndexOf('@');
+                    if (lastAt != -1) {
+                        String credentials = stripped.substring(0, lastAt);
+                        String connectionInfo = stripped.substring(lastAt + 1);
+                        
+                        int colonIndex = credentials.indexOf(':');
+                        if (colonIndex != -1) {
+                            cleanUsername = credentials.substring(0, colonIndex);
+                            cleanPassword = credentials.substring(colonIndex + 1);
+                        } else {
+                            cleanUsername = credentials;
+                        }
+                        
+                        // URL Decode credentials in case they contain encoded characters (like %40 for @)
+                        cleanUsername = java.net.URLDecoder.decode(cleanUsername, java.nio.charset.StandardCharsets.UTF_8);
+                        cleanPassword = java.net.URLDecoder.decode(cleanPassword, java.nio.charset.StandardCharsets.UTF_8);
+                        
+                        int slashIndex = connectionInfo.indexOf('/');
+                        if (slashIndex != -1) {
+                            String hostAndPort = connectionInfo.substring(0, slashIndex);
+                            String databasePath = connectionInfo.substring(slashIndex);
+                            
+                            String host = hostAndPort;
+                            int port = 5432;
+                            int portColonIndex = hostAndPort.lastIndexOf(':');
+                            if (portColonIndex != -1) {
+                                host = hostAndPort.substring(0, portColonIndex);
+                                try {
+                                    port = Integer.parseInt(hostAndPort.substring(portColonIndex + 1));
+                                } catch (NumberFormatException nfe) {}
+                            }
+                            
+                            cleanUrl = "jdbc:postgresql://" + host + ":" + port + databasePath;
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("Failed to parse postgres connection URI: " + e.getMessage());
                 }
-                
-                String credentials = stripped.substring(0, lastAt);
-                String connectionInfo = stripped.substring(lastAt + 1);
-                
-                // Parse username and password
-                String cleanUsername = username;
-                String cleanPassword = password;
-                int colonIndex = credentials.indexOf(':');
-                if (colonIndex != -1) {
-                    cleanUsername = credentials.substring(0, colonIndex);
-                    cleanPassword = credentials.substring(colonIndex + 1);
-                }
-                
-                // Parse host, port, and database path
-                int slashIndex = connectionInfo.indexOf('/');
-                if (slashIndex == -1) {
-                    throw new IllegalArgumentException("Missing database path");
-                }
-                
-                String hostAndPort = connectionInfo.substring(0, slashIndex);
-                String databasePath = connectionInfo.substring(slashIndex); // starts with '/'
-                
-                String host = hostAndPort;
-                int port = 5432;
-                int portColonIndex = hostAndPort.lastIndexOf(':');
-                if (portColonIndex != -1) {
-                    host = hostAndPort.substring(0, portColonIndex);
-                    try {
-                        port = Integer.parseInt(hostAndPort.substring(portColonIndex + 1));
-                    } catch (NumberFormatException nfe) {
-                        // ignore and use default port
+            } else if (urlLower.startsWith("jdbc:postgresql://")) {
+                isPostgres = true;
+                // If it's already a JDBC URL, but it has credentials inside the URL, extract them
+                // e.g. jdbc:postgresql://user:password@host:port/db
+                int doubleSlashIndex = dbUrl.indexOf("//");
+                if (doubleSlashIndex != -1) {
+                    String afterSlash = dbUrl.substring(doubleSlashIndex + 2);
+                    int atIndex = afterSlash.indexOf('@');
+                    if (atIndex != -1) {
+                        String credentials = afterSlash.substring(0, atIndex);
+                        String hostAndPath = afterSlash.substring(atIndex + 1);
+                        
+                        int colonIndex = credentials.indexOf(':');
+                        if (colonIndex != -1) {
+                            cleanUsername = credentials.substring(0, colonIndex);
+                            cleanPassword = credentials.substring(colonIndex + 1);
+                        } else {
+                            cleanUsername = credentials;
+                        }
+                        
+                        try {
+                            cleanUsername = java.net.URLDecoder.decode(cleanUsername, java.nio.charset.StandardCharsets.UTF_8);
+                            cleanPassword = java.net.URLDecoder.decode(cleanPassword, java.nio.charset.StandardCharsets.UTF_8);
+                        } catch (Exception e) {}
+                        
+                        cleanUrl = "jdbc:postgresql://" + hostAndPath;
                     }
                 }
-                
-                // Format as JDBC postgres url
-                cleanUrl = "jdbc:postgresql://" + host + ":" + port + databasePath;
-                if (!cleanUrl.contains("sslmode")) {
-                    if (cleanUrl.contains("?")) {
-                        cleanUrl += "&sslmode=require";
-                    } else {
-                        cleanUrl += "?sslmode=require";
-                    }
-                }
-                
-                return DataSourceBuilder.create()
-                        .url(cleanUrl)
-                        .username(cleanUsername)
-                        .password(cleanPassword)
-                        .driverClassName("org.postgresql.Driver")
-                        .build();
-            } catch (Exception e) {
-                System.err.println("Failed to parse database URI: " + e.getMessage());
             }
         }
-        
-        // Default standard data source creation
-        return DataSourceBuilder.create()
-                .url(cleanUrl)
-                .username(username)
-                .password(password)
-                .build();
+
+        // Enforce sslmode=require for cloud PostgreSQL instances
+        if (isPostgres && cleanUrl != null && !cleanUrl.contains("sslmode")) {
+            if (cleanUrl.contains("?")) {
+                cleanUrl += "&sslmode=require";
+            } else {
+                cleanUrl += "?sslmode=require";
+            }
+        }
+
+        System.out.println("[DatabaseConfig] Connecting to database: " + cleanUrl + " as user: " + cleanUsername);
+
+        if (isPostgres) {
+            return DataSourceBuilder.create()
+                    .url(cleanUrl)
+                    .username(cleanUsername)
+                    .password(cleanPassword)
+                    .driverClassName("org.postgresql.Driver")
+                    .build();
+        } else {
+            return DataSourceBuilder.create()
+                    .url(cleanUrl)
+                    .username(cleanUsername)
+                    .password(cleanPassword)
+                    .build();
+        }
     }
 }
