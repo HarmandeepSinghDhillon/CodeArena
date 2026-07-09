@@ -1,8 +1,12 @@
 package com.coderunner.app.controllers;
 
+import com.coderunner.app.models.Problem;
 import com.coderunner.app.models.User;
+import com.coderunner.app.repositories.ProblemRepository;
 import com.coderunner.app.repositories.UserRepository;
 import com.coderunner.app.services.CodeExecutionService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -30,6 +34,11 @@ public class ApiController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ProblemRepository problemRepository;
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
     // Generate a secure, in-memory key for signing JWTs
     private final String SECRET = "harisonputter9878harisonputter9878harisonputter9878"; 
     private final Key key = Keys.hmacShaKeyFor(SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -39,12 +48,33 @@ public class ApiController {
         String code = payload.get("code");
         String input = payload.getOrDefault("input", "");
         String language = payload.getOrDefault("language", "python");
+        String problemIdStr = payload.get("problemId");
 
         if (code == null || code.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "No code provided"));
         }
 
-        Map<String, Object> result = executionService.executeCode(code, input, language);
+        String customMain = null;
+        if (problemIdStr != null && !problemIdStr.isEmpty()) {
+            try {
+                Long problemId = Long.parseLong(problemIdStr);
+                Optional<Problem> probOpt = problemRepository.findById(problemId);
+                if (probOpt.isPresent()) {
+                    Map<String, Object> map = mapper.readValue(probOpt.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
+                    if ("cpp".equalsIgnoreCase(language)) {
+                        customMain = (String) map.get("customMainCpp");
+                    } else if ("java".equalsIgnoreCase(language)) {
+                        customMain = (String) map.get("customMainJava");
+                    } else {
+                        customMain = (String) map.get("customMainPython");
+                    }
+                }
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+
+        Map<String, Object> result = executionService.executeCode(code, input, language, customMain);
         return ResponseEntity.ok(result);
     }
 

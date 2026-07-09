@@ -19,25 +19,37 @@ public class CodeExecutionService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public Map<String, Object> executeCode(String code, String userInput) {
-        return executeCode(code, userInput, "python");
+        return executeCode(code, userInput, "python", null);
     }
 
     public Map<String, Object> executeCode(String code, String userInput, String language) {
+        return executeCode(code, userInput, language, null);
+    }
+
+    public Map<String, Object> executeCode(String code, String userInput, String language, String customMain) {
         if ("cpp".equalsIgnoreCase(language)) {
-            return executeCpp(code, userInput);
+            return executeCpp(code, userInput, customMain);
         } else if ("java".equalsIgnoreCase(language)) {
-            return executeJava(code, userInput);
+            return executeJava(code, userInput, customMain);
         } else {
-            return executePython(code, userInput);
+            return executePython(code, userInput, customMain);
         }
     }
 
     private Map<String, Object> executePython(String code, String userInput) {
+        return executePython(code, userInput, null);
+    }
+
+    private Map<String, Object> executePython(String code, String userInput, String customMain) {
         Map<String, Object> result = new HashMap<>();
         File tempFile = null;
         try {
             tempFile = File.createTempFile("exec", ".py");
-            String wrapperCode = buildRunWrapper(code);
+            String codeToRun = code;
+            if (customMain != null && !customMain.trim().isEmpty()) {
+                codeToRun = code + "\n\n" + customMain;
+            }
+            String wrapperCode = buildRunWrapper(codeToRun);
             Files.writeString(tempFile.toPath(), wrapperCode);
 
             ProcessBuilder pb = new ProcessBuilder("python3", tempFile.getAbsolutePath());
@@ -72,6 +84,10 @@ public class CodeExecutionService {
     }
 
     private Map<String, Object> executeCpp(String code, String userInput) {
+        return executeCpp(code, userInput, null);
+    }
+
+    private Map<String, Object> executeCpp(String code, String userInput, String customMain) {
         Map<String, Object> result = new HashMap<>();
         File tempDir = null;
         File sourceFile = null;
@@ -80,7 +96,12 @@ public class CodeExecutionService {
             tempDir = Files.createTempDirectory("cpp_exec").toFile();
             sourceFile = new File(tempDir, "solution.cpp");
             binFile = new File(tempDir, "solution_bin");
-            Files.writeString(sourceFile.toPath(), code);
+            
+            String codeToRun = code;
+            if (customMain != null && !customMain.trim().isEmpty()) {
+                codeToRun = code + "\n\n" + customMain;
+            }
+            Files.writeString(sourceFile.toPath(), codeToRun);
 
             ProcessBuilder compileBuilder = new ProcessBuilder("g++", "-O3", "-std=c++17", sourceFile.getAbsolutePath(), "-o", binFile.getAbsolutePath());
             compileBuilder.redirectErrorStream(true);
@@ -134,9 +155,14 @@ public class CodeExecutionService {
     }
 
     private Map<String, Object> executeJava(String code, String userInput) {
+        return executeJava(code, userInput, null);
+    }
+
+    private Map<String, Object> executeJava(String code, String userInput, String customMain) {
         Map<String, Object> result = new HashMap<>();
         File tempDir = null;
         File sourceFile = null;
+        File runnerFile = null;
         try {
             tempDir = Files.createTempDirectory("java_exec").toFile();
             
@@ -149,51 +175,103 @@ public class CodeExecutionService {
             sourceFile = new File(tempDir, className + ".java");
             Files.writeString(sourceFile.toPath(), code);
 
-            ProcessBuilder compileBuilder = new ProcessBuilder("javac", sourceFile.getAbsolutePath());
-            compileBuilder.redirectErrorStream(true);
-            Process compileProcess = compileBuilder.start();
-            boolean compileFinished = compileProcess.waitFor(30, TimeUnit.SECONDS);
-            if (!compileFinished) {
-                compileProcess.destroyForcibly();
-                result.put("error", true);
-                result.put("output", "Compilation timed out");
-                return result;
+            if (customMain != null && !customMain.trim().isEmpty()) {
+                String runnerClassName = "Main";
+                java.util.regex.Matcher mRunner = java.util.regex.Pattern.compile("public\\s+class\\s+(\\w+)").matcher(customMain);
+                if (mRunner.find()) {
+                    runnerClassName = mRunner.group(1);
+                }
+                
+                runnerFile = new File(tempDir, runnerClassName + ".java");
+                Files.writeString(runnerFile.toPath(), customMain);
+
+                ProcessBuilder compileBuilder = new ProcessBuilder("javac", sourceFile.getAbsolutePath(), runnerFile.getAbsolutePath());
+                compileBuilder.redirectErrorStream(true);
+                Process compileProcess = compileBuilder.start();
+                boolean compileFinished = compileProcess.waitFor(30, TimeUnit.SECONDS);
+                if (!compileFinished) {
+                    compileProcess.destroyForcibly();
+                    result.put("error", true);
+                    result.put("output", "Compilation timed out");
+                    return result;
+                }
+
+                if (compileProcess.exitValue() != 0) {
+                    String compileErrors = new String(compileProcess.getInputStream().readAllBytes()).trim();
+                    result.put("error", true);
+                    result.put("output", "Compilation Error:\n" + compileErrors);
+                    return result;
+                }
+
+                ProcessBuilder runBuilder = new ProcessBuilder("java", "-cp", tempDir.getAbsolutePath(), runnerClassName);
+                runBuilder.redirectErrorStream(true);
+                Process runProcess = runBuilder.start();
+
+                if (userInput != null && !userInput.isEmpty()) {
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(runProcess.getOutputStream()));
+                    writer.write(userInput);
+                    writer.close();
+                }
+
+                boolean finished = runProcess.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
+                if (!finished) {
+                    runProcess.destroyForcibly();
+                    result.put("error", true);
+                    result.put("output", "Error: Code execution timed out");
+                    return result;
+                }
+
+                String output = new String(runProcess.getInputStream().readAllBytes()).trim();
+                result.put("error", runProcess.exitValue() != 0);
+                result.put("output", output.isEmpty() ? "Code executed successfully (no output)" : output);
+            } else {
+                ProcessBuilder compileBuilder = new ProcessBuilder("javac", sourceFile.getAbsolutePath());
+                compileBuilder.redirectErrorStream(true);
+                Process compileProcess = compileBuilder.start();
+                boolean compileFinished = compileProcess.waitFor(30, TimeUnit.SECONDS);
+                if (!compileFinished) {
+                    compileProcess.destroyForcibly();
+                    result.put("error", true);
+                    result.put("output", "Compilation timed out");
+                    return result;
+                }
+
+                if (compileProcess.exitValue() != 0) {
+                    String compileErrors = new String(compileProcess.getInputStream().readAllBytes()).trim();
+                    result.put("error", true);
+                    result.put("output", "Compilation Error:\n" + compileErrors);
+                    return result;
+                }
+
+                ProcessBuilder runBuilder = new ProcessBuilder("java", "-cp", tempDir.getAbsolutePath(), className);
+                runBuilder.redirectErrorStream(true);
+                Process runProcess = runBuilder.start();
+
+                if (userInput != null && !userInput.isEmpty()) {
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(runProcess.getOutputStream()));
+                    writer.write(userInput);
+                    writer.close();
+                }
+
+                boolean finished = runProcess.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
+                if (!finished) {
+                    runProcess.destroyForcibly();
+                    result.put("error", true);
+                    result.put("output", "Error: Code execution timed out");
+                    return result;
+                }
+
+                String output = new String(runProcess.getInputStream().readAllBytes()).trim();
+                result.put("error", runProcess.exitValue() != 0);
+                result.put("output", output.isEmpty() ? "Code executed successfully (no output)" : output);
             }
-
-            if (compileProcess.exitValue() != 0) {
-                String compileErrors = new String(compileProcess.getInputStream().readAllBytes()).trim();
-                result.put("error", true);
-                result.put("output", "Compilation Error:\n" + compileErrors);
-                return result;
-            }
-
-            ProcessBuilder runBuilder = new ProcessBuilder("java", "-cp", tempDir.getAbsolutePath(), className);
-            runBuilder.redirectErrorStream(true);
-            Process runProcess = runBuilder.start();
-
-            if (userInput != null && !userInput.isEmpty()) {
-                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(runProcess.getOutputStream()));
-                writer.write(userInput);
-                writer.close();
-            }
-
-            boolean finished = runProcess.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
-            if (!finished) {
-                runProcess.destroyForcibly();
-                result.put("error", true);
-                result.put("output", "Error: Code execution timed out");
-                return result;
-            }
-
-            String output = new String(runProcess.getInputStream().readAllBytes()).trim();
-            result.put("error", runProcess.exitValue() != 0);
-            result.put("output", output.isEmpty() ? "Code executed successfully (no output)" : output);
 
         } catch (Exception e) {
             result.put("error", true);
             result.put("output", "Error: " + e.getMessage());
         } finally {
             if (sourceFile != null) sourceFile.delete();
+            if (runnerFile != null) runnerFile.delete();
             if (tempDir != null) {
                 File[] classFiles = tempDir.listFiles((dir, name) -> name.endsWith(".class"));
                 if (classFiles != null) {
@@ -231,20 +309,68 @@ public class CodeExecutionService {
     }
 
     public Map<String, Object> submitSolution(String code, String testInput, String expectedOutput) {
-        return submitSolution(code, testInput, expectedOutput, "python");
+        return submitSolution(code, testInput, expectedOutput, "python", null);
     }
 
     public Map<String, Object> submitSolution(String code, String testInput, String expectedOutput, String language) {
+        return submitSolution(code, testInput, expectedOutput, language, null);
+    }
+
+    public Map<String, Object> submitSolution(String code, String testInput, String expectedOutput, String language, String customMain) {
         if ("cpp".equalsIgnoreCase(language)) {
-            return submitCpp(code, testInput, expectedOutput);
+            return submitCpp(code, testInput, expectedOutput, customMain);
         } else if ("java".equalsIgnoreCase(language)) {
-            return submitJava(code, testInput, expectedOutput);
+            return submitJava(code, testInput, expectedOutput, customMain);
         } else {
-            return submitPython(code, testInput, expectedOutput);
+            return submitPython(code, testInput, expectedOutput, customMain);
         }
     }
 
     private Map<String, Object> submitPython(String code, String testInput, String expectedOutput) {
+        return submitPython(code, testInput, expectedOutput, null);
+    }
+
+    private Map<String, Object> submitPython(String code, String testInput, String expectedOutput, String customMain) {
+        if (customMain != null && !customMain.trim().isEmpty()) {
+            Map<String, Object> result = new HashMap<>();
+            File tempFile = null;
+            try {
+                tempFile = File.createTempFile("test", ".py");
+                
+                String combinedCode = code + "\n\n" + customMain;
+                Files.writeString(tempFile.toPath(), combinedCode);
+                
+                ProcessBuilder pb = new ProcessBuilder("python3", tempFile.getAbsolutePath());
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                
+                if (testInput != null && !testInput.isEmpty()) {
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
+                    writer.write(testInput);
+                    writer.close();
+                }
+                
+                boolean finished = process.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    result.put("passed", false);
+                    result.put("output", "Timeout");
+                    return result;
+                }
+                
+                String output = new String(process.getInputStream().readAllBytes()).trim();
+                result.put("output", output);
+                result.put("passed", output.equals(expectedOutput.trim()));
+                
+            } catch (Exception e) {
+                result.put("passed", false);
+                result.put("output", "Error: " + e.getMessage());
+            } finally {
+                if (tempFile != null) tempFile.delete();
+            }
+            return result;
+        }
+
         Map<String, Object> result = new HashMap<>();
         File tempFile = null;
         try {
@@ -386,6 +512,74 @@ public class CodeExecutionService {
     }
 
     private Map<String, Object> submitCpp(String code, String testInput, String expectedOutput) {
+        return submitCpp(code, testInput, expectedOutput, null);
+    }
+
+    private Map<String, Object> submitCpp(String code, String testInput, String expectedOutput, String customMain) {
+        if (customMain != null && !customMain.trim().isEmpty()) {
+            Map<String, Object> result = new HashMap<>();
+            File tempDir = null;
+            File sourceFile = null;
+            File binFile = null;
+            try {
+                tempDir = Files.createTempDirectory("cpp_submit").toFile();
+                sourceFile = new File(tempDir, "solution.cpp");
+                binFile = new File(tempDir, "solution_bin");
+
+                String combinedCode = code + "\n\n" + customMain;
+                Files.writeString(sourceFile.toPath(), combinedCode);
+
+                ProcessBuilder compileBuilder = new ProcessBuilder("g++", "-O3", "-std=c++17", sourceFile.getAbsolutePath(), "-o", binFile.getAbsolutePath());
+                compileBuilder.redirectErrorStream(true);
+                Process compileProcess = compileBuilder.start();
+                boolean compileFinished = compileProcess.waitFor(30, TimeUnit.SECONDS);
+                if (!compileFinished) {
+                    compileProcess.destroyForcibly();
+                    result.put("passed", false);
+                    result.put("output", "Compilation Timeout");
+                    return result;
+                }
+
+                if (compileProcess.exitValue() != 0) {
+                    String compileErrors = new String(compileProcess.getInputStream().readAllBytes()).trim();
+                    result.put("passed", false);
+                    result.put("output", "Compilation Error:\n" + compileErrors);
+                    return result;
+                }
+
+                ProcessBuilder runBuilder = new ProcessBuilder(binFile.getAbsolutePath());
+                runBuilder.redirectErrorStream(true);
+                Process runProcess = runBuilder.start();
+                
+                if (testInput != null && !testInput.isEmpty()) {
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(runProcess.getOutputStream()));
+                    writer.write(testInput);
+                    writer.close();
+                }
+                
+                boolean finished = runProcess.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
+                if (!finished) {
+                    runProcess.destroyForcibly();
+                    result.put("passed", false);
+                    result.put("output", "Timeout");
+                    return result;
+                }
+
+                String output = new String(runProcess.getInputStream().readAllBytes()).trim();
+                result.put("output", output);
+                result.put("passed", output.equals(expectedOutput.trim()));
+
+            } catch (Exception e) {
+                result.put("passed", false);
+                result.put("output", "Error: " + e.getMessage());
+            } finally {
+                if (sourceFile != null) sourceFile.delete();
+                if (binFile != null) binFile.delete();
+                if (tempDir != null) tempDir.delete();
+            }
+            return result;
+        }
+
         Map<String, Object> result = new HashMap<>();
         File tempDir = null;
         File sourceFile = null;
@@ -486,6 +680,93 @@ public class CodeExecutionService {
     }
 
     private Map<String, Object> submitJava(String code, String testInput, String expectedOutput) {
+        return submitJava(code, testInput, expectedOutput, null);
+    }
+
+    private Map<String, Object> submitJava(String code, String testInput, String expectedOutput, String customMain) {
+        if (customMain != null && !customMain.trim().isEmpty()) {
+            Map<String, Object> result = new HashMap<>();
+            File tempDir = null;
+            File sourceFile = null;
+            File runnerFile = null;
+            try {
+                tempDir = Files.createTempDirectory("java_submit").toFile();
+                
+                String className = "Solution";
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("public\\s+class\\s+(\\w+)").matcher(code);
+                if (m.find()) {
+                    className = m.group(1);
+                }
+                
+                sourceFile = new File(tempDir, className + ".java");
+                Files.writeString(sourceFile.toPath(), code);
+
+                String runnerClassName = "Main";
+                java.util.regex.Matcher mRunner = java.util.regex.Pattern.compile("public\\s+class\\s+(\\w+)").matcher(customMain);
+                if (mRunner.find()) {
+                    runnerClassName = mRunner.group(1);
+                }
+                
+                runnerFile = new File(tempDir, runnerClassName + ".java");
+                Files.writeString(runnerFile.toPath(), customMain);
+
+                ProcessBuilder compileBuilder = new ProcessBuilder("javac", sourceFile.getAbsolutePath(), runnerFile.getAbsolutePath());
+                compileBuilder.redirectErrorStream(true);
+                Process compileProcess = compileBuilder.start();
+                boolean compileFinished = compileProcess.waitFor(30, TimeUnit.SECONDS);
+                if (!compileFinished) {
+                    compileProcess.destroyForcibly();
+                    result.put("passed", false);
+                    result.put("output", "Compilation Timeout");
+                    return result;
+                }
+
+                if (compileProcess.exitValue() != 0) {
+                    String compileErrors = new String(compileProcess.getInputStream().readAllBytes()).trim();
+                    result.put("passed", false);
+                    result.put("output", "Compilation Error:\n" + compileErrors);
+                    return result;
+                }
+
+                ProcessBuilder runBuilder = new ProcessBuilder("java", "-cp", tempDir.getAbsolutePath(), runnerClassName);
+                runBuilder.redirectErrorStream(true);
+                Process runProcess = runBuilder.start();
+                
+                if (testInput != null && !testInput.isEmpty()) {
+                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(runProcess.getOutputStream()));
+                    writer.write(testInput);
+                    writer.close();
+                }
+                
+                boolean finished = runProcess.waitFor(EXECUTION_TIMEOUT, TimeUnit.SECONDS);
+                if (!finished) {
+                    runProcess.destroyForcibly();
+                    result.put("passed", false);
+                    result.put("output", "Timeout");
+                    return result;
+                }
+
+                String output = new String(runProcess.getInputStream().readAllBytes()).trim();
+                result.put("output", output);
+                result.put("passed", output.equals(expectedOutput.trim()));
+
+            } catch (Exception e) {
+                result.put("passed", false);
+                result.put("output", "Error: " + e.getMessage());
+            } finally {
+                if (sourceFile != null) sourceFile.delete();
+                if (runnerFile != null) runnerFile.delete();
+                if (tempDir != null) {
+                    File[] classFiles = tempDir.listFiles((dir, name) -> name.endsWith(".class"));
+                    if (classFiles != null) {
+                        for (File f : classFiles) f.delete();
+                    }
+                    tempDir.delete();
+                }
+            }
+            return result;
+        }
+
         Map<String, Object> result = new HashMap<>();
         File tempDir = null;
         File sourceFile = null;

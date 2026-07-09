@@ -152,6 +152,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           code: code,
           language: selectedLanguage,
+          problemId: activeProblem.id,
           input: activeProblem.testCases && activeProblem.testCases.length > 0 
                  ? activeProblem.testCases[0].input : ""
         })

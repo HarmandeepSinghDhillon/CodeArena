@@ -139,13 +139,16 @@ function validateProblem(prob) {
       boilerplate: pyBoilerplate ? pyBoilerplate.trim() : '',
       boilerplateCpp: prob.boilerplatecpp ? prob.boilerplatecpp.trim() : '',
       boilerplateJava: prob.boilerplatejava ? prob.boilerplatejava.trim() : '',
+      customMainPython: prob.custommainpython ? prob.custommainpython.trim() : '',
+      customMainCpp: prob.custommaincpp ? prob.custommaincpp.trim() : '',
+      customMainJava: prob.custommainjava ? prob.custommainjava.trim() : '',
       testCases
     }
   };
 }
 
 const downloadTemplate = () => {
-  const headers = ['title', 'difficulty', 'description', 'inputFormat', 'outputFormat', 'constraints', 'boilerplatePython', 'boilerplateCpp', 'boilerplateJava', 'testCases'];
+  const headers = ['title', 'difficulty', 'description', 'inputFormat', 'outputFormat', 'constraints', 'boilerplatePython', 'boilerplateCpp', 'boilerplateJava', 'customMainPython', 'customMainCpp', 'customMainJava', 'testCases'];
   const row1 = [
     'Two Sum',
     'Easy',
@@ -156,6 +159,9 @@ const downloadTemplate = () => {
     'def solution(nums, target):\n    # Write code here\n    pass',
     '#include <iostream>\n#include <vector>\n\nclass Solution {\npublic:\n    std::vector<int> solution(std::vector<int>& nums, int target) {\n        // Write code here\n    }\n};',
     'import java.util.*;\n\npublic class Solution {\n    public List<Integer> solution(List<Integer> nums, int target) {\n        // Write code here\n    }\n}',
+    '',
+    '',
+    '',
     JSON.stringify([{ input: '[2,7,11,15], 9', expected: '[0,1]', explanation: 'Because nums[0] + nums[1] == 9' }])
   ];
   const row2 = [
@@ -168,6 +174,9 @@ const downloadTemplate = () => {
     'def solution(s):\n    return s[::-1]',
     '#include <iostream>\n#include <string>\n\nclass Solution {\npublic:\n    std::string solution(std::string s) {\n        // Write code here\n    }\n};',
     'import java.util.*;\n\npublic class Solution {\n    public String solution(String s) {\n        // Write code here\n    }\n}',
+    '',
+    '',
+    '',
     JSON.stringify([{ input: '"hello"', expected: '"olleh"' }])
   ];
   
@@ -196,7 +205,7 @@ export default function Admin() {
   const [stats, setStats] = useState({ totalProblems: 0, totalSubmissions: 0, activeUsers: 0 });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState(null);
-  const [formData, setFormData] = useState({ title: '', difficulty: 'Easy', description: '', inputFormat: '', outputFormat: '', constraints: '', testCases: [{ input: '', expected: '', explanation: '' }], boilerplate: '', boilerplateCpp: '', boilerplateJava: '' });
+  const [formData, setFormData] = useState({ title: '', difficulty: 'Easy', description: '', inputFormat: '', outputFormat: '', constraints: '', testCases: [{ input: '', expected: '', explanation: '' }], boilerplate: '', boilerplateCpp: '', boilerplateJava: '', customMainPython: '', customMainCpp: '', customMainJava: '' });
   const [activeCodeTab, setActiveCodeTab] = useState('python');
   const [searchQuery, setSearchQuery] = useState('');
   const [theme, setTheme] = useState('dark');
@@ -270,7 +279,10 @@ export default function Admin() {
           : [{ input: '', expected: '', explanation: '' }],
         boilerplate: problem.boilerplate || 'def solution(nums, target):\n    pass',
         boilerplateCpp: problem.boilerplateCpp || '',
-        boilerplateJava: problem.boilerplateJava || ''
+        boilerplateJava: problem.boilerplateJava || '',
+        customMainPython: problem.customMainPython || '',
+        customMainCpp: problem.customMainCpp || '',
+        customMainJava: problem.customMainJava || ''
       });
     } else {
       setEditingProblem(null);
@@ -284,7 +296,10 @@ export default function Admin() {
         testCases: [{ input: '1,2,3', expected: '6', explanation: 'The sum of all numbers is 6.' }],
         boilerplate: 'def solution(nums):\n    return []',
         boilerplateCpp: `#include <iostream>\n#include <vector>\n#include <string>\n\nclass Solution {\npublic:\n    // Adjust return type and parameters as needed\n    int solution(std::vector<int>& nums) {\n        return 0;\n    }\n};`,
-        boilerplateJava: `import java.util.*;\n\npublic class Solution {\n    // Adjust return type and parameters as needed\n    public int solution(List<Integer> nums) {\n        return 0;\n    }\n}`
+        boilerplateJava: `import java.util.*;\n\npublic class Solution {\n    // Adjust return type and parameters as needed\n    public int solution(List<Integer> nums) {\n        return 0;\n    }\n}`,
+        customMainPython: '',
+        customMainCpp: '',
+        customMainJava: ''
       });
     }
     setIsModalOpen(true);
@@ -840,6 +855,44 @@ export default function Admin() {
                       onChange={(e) => setFormData({...formData, boilerplateJava: e.target.value})}
                       className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y ${theme === 'dark' ? 'bg-black/30 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
                       placeholder="public class Solution { ... }"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-white/10">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Custom Main / Execution Driver Codes (Optional)</h3>
+                  <p className="text-[10px] text-gray-500 mb-1">Define helper classes/structs (e.g. ListNode, TreeNode) and read input from standard input (stdin) to call the user's Solution class and print expected results.</p>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-gray-400 uppercase">Python Custom Main Code</label>
+                    <textarea 
+                      rows="3"
+                      value={formData.customMainPython}
+                      onChange={(e) => setFormData({...formData, customMainPython: e.target.value})}
+                      className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y ${theme === 'dark' ? 'bg-black/30 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
+                      placeholder="e.g. if __name__ == '__main__': ... (Read from sys.stdin)"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-gray-400 uppercase">C++ Custom Main Code</label>
+                    <textarea 
+                      rows="3"
+                      value={formData.customMainCpp}
+                      onChange={(e) => setFormData({...formData, customMainCpp: e.target.value})}
+                      className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y ${theme === 'dark' ? 'bg-black/30 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
+                      placeholder="e.g. int main() { ... (Read from std::cin) }"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-gray-400 uppercase">Java Custom Main Code</label>
+                    <textarea 
+                      rows="3"
+                      value={formData.customMainJava}
+                      onChange={(e) => setFormData({...formData, customMainJava: e.target.value})}
+                      className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y ${theme === 'dark' ? 'bg-black/30 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} 
+                      placeholder="e.g. public class Main { public static void main(String[] args) { ... } }"
                     />
                   </div>
                 </div>

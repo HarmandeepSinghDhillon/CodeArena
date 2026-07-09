@@ -361,13 +361,31 @@ public class DataController {
             List<Map<String, String>> testCases = (List<Map<String, String>>) payload.get("testCases");
             String language = (String) payload.getOrDefault("language", "python");
 
+            String customMain = null;
+            if (problemIdStr != null && !problemIdStr.isEmpty() && !"null".equals(problemIdStr)) {
+                try {
+                    Long problemId = Long.parseLong(problemIdStr);
+                    Optional<Problem> probOpt = problemRepository.findById(problemId);
+                    if (probOpt.isPresent()) {
+                        Map<String, Object> map = mapper.readValue(probOpt.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
+                        if ("cpp".equalsIgnoreCase(language)) {
+                            customMain = (String) map.get("customMainCpp");
+                        } else if ("java".equalsIgnoreCase(language)) {
+                            customMain = (String) map.get("customMainJava");
+                        } else {
+                            customMain = (String) map.get("customMainPython");
+                        }
+                    }
+                } catch (Exception e) {}
+            }
+
             List<Map<String, Object>> results = new ArrayList<>();
             boolean allPassed = true;
             int passedCount = 0;
 
             for (int i = 0; i < testCases.size(); i++) {
                 Map<String, String> tc = testCases.get(i);
-                Map<String, Object> res = executionService.submitSolution(code, tc.get("input"), tc.get("expected"), language);
+                Map<String, Object> res = executionService.submitSolution(code, tc.get("input"), tc.get("expected"), language, customMain);
                 
                 Map<String, Object> resultEntry = new HashMap<>(res);
                 resultEntry.put("testCase", i + 1);
