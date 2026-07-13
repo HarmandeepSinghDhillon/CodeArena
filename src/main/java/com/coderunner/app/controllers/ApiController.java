@@ -196,6 +196,7 @@ public class ApiController {
         Cookie cookie = new Cookie("auth_token", token);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
+        cookie.setMaxAge(24 * 60 * 60); // 1 day validity
         // cookie.setSecure(true); // Uncomment this if you deploy to production with HTTPS
         response.addCookie(cookie);
     }

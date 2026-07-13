@@ -11,7 +11,7 @@ public class ViewController {
     @GetMapping({"/", "/dashboard"})
     public String serveDashboard(HttpServletRequest request) {
         if (hasAuthToken(request)) {
-            return "forward:/dashboard.html";
+            return "forward:/index.html";
         }
         return "redirect:/login";
     }
@@ -29,14 +29,14 @@ public class ViewController {
         if (hasAuthToken(request)) {
             return "redirect:/dashboard";
         }
-        return "forward:/signup.html";
+        return "forward:/index.html";
     }
 
     @GetMapping("/admin")
     public String serveAdmin(HttpServletRequest request) {
         // Assume logic validates admin role via token
         if (hasAuthToken(request)) {
-            return "forward:/admin.html";
+            return "forward:/index.html";
         }
         return "redirect:/login";
     }
